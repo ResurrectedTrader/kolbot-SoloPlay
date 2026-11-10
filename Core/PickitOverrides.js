@@ -396,6 +396,7 @@ Pickit.canPick = function (unit) {
 const _toCursorPick = new Set();
 
 Pickit.pickItem = (function () {
+  const failedPicks = new Map();
   const cancelFlags = [
     sdk.uiflags.Inventory, sdk.uiflags.NPCMenu,
     sdk.uiflags.Waypoint, sdk.uiflags.Shop,
@@ -476,6 +477,7 @@ Pickit.pickItem = (function () {
       me.cancel(0);
     }
 
+    let attemptedPick = false;
     let retry = false;
     const stats = new ItemStats(item);
     const tkMana = stats.useTk
@@ -550,6 +552,7 @@ Pickit.pickItem = (function () {
             : Misc.click(0, 0, item);
       }
 
+      attemptedPick = true;
       let tick = getTickCount();
 
       while (getTickCount() - tick < (itemDist > 10 ? 2000 : 1000)) {
@@ -558,6 +561,7 @@ Pickit.pickItem = (function () {
 
         if (stats.classid === sdk.items.Gold) {
           if (!item.getStat(sdk.stats.Gold) || item.getStat(sdk.stats.Gold) < stats.gold) {
+            failedPicks.delete(gid);
             console.log(
               "ÿc7Picked up " + stats.color
               + (item.getStat(sdk.stats.Gold) ? (item.getStat(sdk.stats.Gold) - stats.gold) : stats.gold)
@@ -568,6 +572,7 @@ Pickit.pickItem = (function () {
         }
 
         if (!item.onGroundOrDropping) {
+          failedPicks.delete(gid);
           switch (stats.classid) {
           case sdk.items.Key:
             console.log("ÿc7Picked up " + stats.color + stats.name + " ÿc7(" + me.checkKeys() + "/12)");
@@ -602,6 +607,21 @@ Pickit.pickItem = (function () {
     if (retry) return this.pickItem(unit, status, keptLine);
 
     stats.picked = me.itemcount > itemCount || !!me.getItem(-1, -1, gid);
+
+    if (!stats.picked && attemptedPick && copyUnit(item).x !== undefined && item.onGroundOrDropping) {
+      let failure = failedPicks.get(gid);
+      if (!failure || getDistance(me.x, me.y, failure.x, failure.y) > 3) {
+        failure = { x: me.x, y: me.y, count: 0 };
+        failedPicks.set(gid, failure);
+      }
+      // Separate pick calls can repeatedly select the same ground item even after each call exhausts its retries.
+      if (++failure.count >= 5) {
+        Pickit.ignoreList.add(gid);
+        failedPicks.delete(gid);
+      }
+    } else if (stats.picked || !item.onGroundOrDropping) {
+      failedPicks.delete(gid);
+    }
 
     if (stats.picked) {
       DataFile.updateStats("lastArea");
@@ -670,7 +690,7 @@ Pickit.checkSpotForItems = function (spot, checkVsMyDist = false, range = Config
 
   if (item) {
     do {
-      if (item.onGroundOrDropping && getDistance(spot, item) <= range) {
+      if (item.onGroundOrDropping && !Pickit.ignoreList.has(item.gid) && getDistance(spot, item) <= range) {
         const spotDist = getDistance(spot, item);
         const itemDistFromMe = item.distance;
         if (Pickit.essentials.includes(item.itemType)) {
@@ -723,7 +743,7 @@ Pickit.essessntialsPick = function (clearBeforePick = false, builtList = [], onc
 
   if (item) {
     do {
-      if (item.onGroundOrDropping
+      if (item.onGroundOrDropping && !Pickit.ignoreList.has(item.gid)
         && item.distance <= maxDist
         && Pickit.essentials.includes(item.itemType)) {
         if (Pickit.essentialList.some(el => el.gid === item.gid)) continue;
@@ -744,7 +764,7 @@ Pickit.essessntialsPick = function (clearBeforePick = false, builtList = [], onc
 
     // Check if the item unit is still valid and if it's on ground or being dropped
     // Don't pick items behind walls/obstacles when walking
-    if (copyUnit(currItem).x !== undefined && currItem.onGroundOrDropping
+    if (!Pickit.ignoreList.has(currItem.gid) && copyUnit(currItem).x !== undefined && currItem.onGroundOrDropping
       && (Pather.useTeleport() || !checkCollision(me, currItem, sdk.collision.BlockWall))) {
       // Check if the item should be picked
       let status = this.checkItem(currItem);
