@@ -685,6 +685,14 @@
         } */
       }
 
+      // The game's own line check below can block a target that Coords.isBlockedBetween saw as clear.
+      // Casting nothing and returning SUCCESS would count as an attack, so move or report the failure.
+      if (!unit.dead && checkCollision(me, unit, Coords.BlockBits.Ranged)
+        && (!Attack.getIntoPosition(unit, range, Coords.BlockBits.Ranged, false, true)
+        || checkCollision(me, unit, Coords.BlockBits.Ranged))) {
+        return Attack.Result.FAILED;
+      }
+
       if (!unit.dead && !checkCollision(me, unit, Coords.BlockBits.Ranged)) {
         if (skill === sdk.skills.ChargedBolt) {
           let preHealth = unit.hp;
