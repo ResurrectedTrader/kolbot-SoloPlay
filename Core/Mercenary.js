@@ -78,6 +78,18 @@ const Mercenary = {
   minCost: -1,
   timeout: 0,
 
+  defensiveGuardSkill: function (merc) {
+    if (!merc || merc.dead || merc.classid !== sdk.mercs.Guard) return 0;
+    const skills = [sdk.skills.HolyFreeze, sdk.skills.Defiance];
+    if (typeof merc.getSkill === "function") {
+      for (let skill of skills) {
+        if (merc.getSkill(skill, sdk.skills.subindex.HardPoints) > 0) return skill;
+      }
+    }
+    const active = merc.getStat(sdk.stats.ModifierListSkill);
+    return skills.includes(active) ? active : 0;
+  },
+
   /**
    * only a2 mercs for now, need to test others to see if ModifierListSkill returns their skill
    * @param {MercUnit} merc 
@@ -219,6 +231,12 @@ const Mercenary = {
     let mercAct = (!me.accessToAct(2) && me.normal ? 1 : wantedMerc.act);
     let tmpAuraName = "Defiance";
     let currMerc = me.data.merc;
+    const verifyFreeze = me.nightmare && wantedMerc.skill === sdk.skills.HolyFreeze;
+    const maskedRetry = currMerc.retryHolyFreeze && Array.isArray(currMerc.gear)
+      && currMerc.gear.includes(sdk.locale.items.Insight);
+    const retryHire = verifyFreeze && (currMerc.difficulty === me.diff || maskedRetry)
+      && currMerc.classid === sdk.mercs.Guard
+      && (currMerc.skill === sdk.skills.Defiance || currMerc.skillName === "");
 
     // don't hire if using correct a1 merc, or passed merc hire difficulty
     // we've already gotten the correct a1 merc or haven't yet completed Bloodraven
@@ -235,7 +253,7 @@ const Mercenary = {
     case me.diff > wantedMerc.difficulty:
     case me.diff === wantedMerc.difficulty && !me.accessToAct(wantedMerc.act):
     case me.diff !== wantedMerc.difficulty && currMerc.skillName === "Defiance":
-    case (me.charlvl > CharInfo.levelCap + 10 && Mercenary.checkMercSkill(wantedMerc)):
+    case (!retryHire && me.charlvl > CharInfo.levelCap + 10 && Mercenary.checkMercSkill(wantedMerc)):
     case me.gold < Math.round((((me.charlvl - 1) * (me.charlvl - 1)) / 2) * 7.5):
     case this.minCost > 0 && me.gold < this.minCost:
       return true;
@@ -256,7 +274,7 @@ const Mercenary = {
         : wantedMerc.skillName
     );
 
-    if (checkMyMerc && Mercenary.checkMercSkill(wantedMerc, checkMyMerc)) {
+    if (checkMyMerc && !retryHire && Mercenary.checkMercSkill(wantedMerc, checkMyMerc)) {
       // we have our wanted merc, data file was probably erased so lets re-update it
       me.data.merc.act = Mercenary.getMercAct(checkMyMerc);
       me.data.merc.classid = checkMyMerc.classid;
@@ -266,7 +284,7 @@ const Mercenary = {
       CharData.updateData("merc", me.data) && me.update();
 
       return true;
-    } else if (!!checkMyMerc && checkMyMerc.classid === sdk.mercs.Guard) {
+    } else if (!!checkMyMerc && checkMyMerc.classid === sdk.mercs.Guard && !retryHire) {
       let checkSkill = checkMyMerc.getStat(sdk.stats.ModifierListSkill);
       // aura isn't active so we can't check it
       if (!checkSkill) return true;
@@ -332,10 +350,20 @@ const Mercenary = {
         me.data.merc.act = me.act;
         me.data.merc.classid = newMerc.classid;
         me.data.merc.difficulty = me.diff;
-        me.data.merc.skillName = wantedMerc.skills.find(sk => sk.name === wantedSkill).name;
-        me.data.merc.skill = MercData.findByName(me.data.merc.skillName, me.act).skill;
+        const observed = verifyFreeze ? this.defensiveGuardSkill(newMerc) : 0;
+        if (verifyFreeze && observed !== sdk.skills.HolyFreeze) {
+          me.data.merc.retryHolyFreeze = true;
+          me.data.merc.skill = observed;
+          me.data.merc.skillName = observed ? MercData[observed].skillName : "";
+          // The current offer list has already been tried. Check again in the next game.
+          this.timeout = Infinity;
+        } else {
+          delete me.data.merc.retryHolyFreeze;
+          me.data.merc.skillName = wantedMerc.skills.find(sk => sk.name === wantedSkill).name;
+          me.data.merc.skill = MercData.findByName(me.data.merc.skillName, me.act).skill;
+        }
         CharData.updateData("me", me.data) && me.update();
-        console.log("ÿc9Mercenaryÿc0 :: " + me.data.merc.skillName + " merc hired.");
+        console.log("ÿc9Mercenaryÿc0 :: " + (me.data.merc.skillName || "Unconfirmed") + " merc hired.");
       }
       me.cancelUIFlags();
       while (getInteractedNPC()) {
