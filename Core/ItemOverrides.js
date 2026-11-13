@@ -912,13 +912,21 @@ Item.autoEquipMerc = function () {
         Item.identify(item);
 
         console.log("Merc " + name);
-        this.equipMerc(item, loc) && console.log("ÿc9MercEquipÿc0 :: Equipped: " + name + " MercTier: " + tier);
+        const storage = item.isInStash ? Storage.Stash : Storage.Inventory;
+        const equipped = this.equipMerc(item, loc);
+        equipped && console.log("ÿc9MercEquipÿc0 :: Equipped: " + name + " MercTier: " + tier);
         
         let cursorItem = Game.getCursorUnit();
 
         if (cursorItem) {
-          cursorItem.drop();
-          Settings.debugging.autoEquip && Item.logItem("Merc Dropped", cursorItem);
+          // a failed equip leaves the item itself on the cursor, dropping it only has pickit pick it up again,
+          // so put it back where it came from
+          if (!equipped && storage.CanFit(cursorItem) && storage.MoveTo(cursorItem)) {
+            Settings.debugging.autoEquip && Item.logItem("Merc Kept", cursorItem);
+          } else {
+            cursorItem.drop();
+            Settings.debugging.autoEquip && Item.logItem("Merc Dropped", cursorItem);
+          }
         }
 
         break;
