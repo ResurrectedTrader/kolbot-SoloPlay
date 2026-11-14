@@ -50,6 +50,17 @@ Pickit.checkItem = function (unit) {
     };
   };
 
+  // Keep at most one spare mercenary base: worse ones are junk, a better one replaces the stored one.
+  // Checked first so the generic merc gear and base keep lines can't hoard duplicates.
+  if (unit.itemType === sdk.items.type.Polearm && unit.sockets === 4) {
+    const { spareMercBaseRank, betterBaseThanWearing } = require("../Modules/ItemUtils");
+    const spareRank = spareMercBaseRank(unit);
+    if (spareRank < 0) return resultObj(unit.isInStorage ? Pickit.Result.TRASH : Pickit.Result.UNWANTED);
+    if (spareRank > 0 && betterBaseThanWearing(unit)) {
+      return resultObj(Pickit.Result.SOLOWANTS, "Best spare mercenary base");
+    }
+  }
+
   // quick return on essentials - we know they aren't going to be in the other checks
   if (Pickit.essentials.includes(unit.itemType)) return rval;
 
