@@ -410,13 +410,64 @@
   };
 
   /**
-   * @param {ItemUnit} base 
-   * @param {boolean} verbose 
+   * An empty 4 socket polearm on the ground or in storage, i.e. a spare mercenary runeword base
+   * @param {ItemUnit} item
+   * @returns {boolean}
+   */
+  const isSpareMercBase = function (item) {
+    return (item.isInStorage || item.onGroundOrDropping)
+      && item.itemType === sdk.items.type.Polearm && item.sockets === 4
+      && item.isBaseType && !item.isRuneword && !item.getItem();
+  };
+
+  /**
+   * Ranks a spare mercenary base against the other spares in storage so at most one, the best, is kept.
+   * A base registered for a 4 socket runeword beats an unregistered one, then higher two-hand damage wins,
+   * and on a tie the base already owned stays.
+   * @param {ItemUnit} item
+   * @returns {number} 0 when there is nothing to compare (other checks decide), 1 if best, -1 if not
+   */
+  const spareMercBaseRank = function (item) {
+    if (!isSpareMercBase(item)) return 0;
+    const owned = me.getItemsEx(-1, sdk.items.mode.inStorage)
+      .filter(other => other.gid !== item.gid && isSpareMercBase(other));
+    if (!owned.length) return 0;
+
+    /** @param {ItemUnit} base */
+    const registered = function (base) {
+      return Config.Runewords.some(([runeword, classid]) => runeword.sockets === 4 && classid === base.classid);
+    };
+    /** @param {ItemUnit} base */
+    const damage = function (base) {
+      return base.getStatEx(sdk.stats.SecondaryMinDamage) + base.getStatEx(sdk.stats.SecondaryMaxDamage);
+    };
+    const usable = registered(item);
+    const score = damage(item);
+
+    for (let other of owned) {
+      const otherUsable = registered(other);
+      if (usable !== otherUsable) {
+        if (otherUsable) return -1;
+        continue;
+      }
+      const otherScore = damage(other);
+      if (otherScore > score) return -1;
+      // tie: a ground base loses to the owned one, between stored bases the older (lower gid) stays
+      if (otherScore === score && (!item.isInStorage || other.gid < item.gid)) return -1;
+    }
+
+    return 1;
+  };
+
+  /**
+   * @param {ItemUnit} base
+   * @param {boolean} verbose
    * @param {runeword | null} runeword
-   * @returns {boolean} 
+   * @returns {boolean}
    */
   const betterBaseThanWearing = function (base, verbose = Settings.debugging.baseCheck, runeword = null) {
     if (!base || !base.isBaseType) return false;
+    if (spareMercBaseRank(base) < 0) return false;
 
     let name = "";
     let itemsResists, baseResists, itemsTotalDmg, baseDmg, itemsDefense, baseDefense;
@@ -759,6 +810,8 @@
     if (!base || base.quality > sdk.items.quality.Superior || base.isRuneword) return false;
     if (base.sockets === 0 && getBaseStat("items", base.classid, "gemsockets") <= 1) return false;
     if (base.sockets === 1) return false;
+    const spareRank = spareMercBaseRank(base);
+    if (spareRank) return spareRank > 0;
     verbose === undefined && (verbose = Settings.debugging.baseCheck);
 
     /** @param {ItemUnit} item */
@@ -1006,6 +1059,7 @@
   };
 
   module.exports = {
+    spareMercBaseRank: spareMercBaseRank,
     unsocketItem: unsocketItem,
     checkItemsForSocketing: checkItemsForSocketing,
     checkItemsForImbueing: checkItemsForImbueing,
