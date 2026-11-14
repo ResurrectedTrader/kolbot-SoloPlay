@@ -801,12 +801,13 @@
      *   - should be able to compare regular items to class items and take into account the max amount of sockets an item can have
      * 
      */
-    function getItemToCompare (itemtypes = [], eth = null, sort = (a, b) => a - b) {
+    function getItemToCompare (itemtypes = [], eth = null, sort = (a, b) => a - b, eligible = null) {
       return me.getItemsEx(-1, sdk.items.mode.inStorage)
         .filter(item =>
           itemtypes.includes(item.itemType)
           && ((item.sockets === base.sockets) || (item.sockets > base.sockets))
-          && (eth === null || item.ethereal === eth))
+          && (eth === null || item.ethereal === eth)
+          && (!eligible || eligible(item)))
         .sort(sort)
         .last();
     }
@@ -984,6 +985,17 @@
       return (base.isInStorage ? damageScoreCheck(base, checkItem) : false);
     case sdk.items.type.Polearm:
       checkItem = getItemToCompare([sdk.items.type.Polearm], null, twoHandDmgSort);
+      if (checkItem && checkItem.gid !== base.gid && base.sockets === 4 && !base.getItem()) {
+        const guard = me.getMercEx();
+        if (guard && guard.classid === sdk.mercs.Guard && Item.canEquipMerc(base, sdk.body.RightArm)
+          && !Item.canEquipMerc(checkItem, sdk.body.RightArm)
+          && !guard.getItemsEx().some(item => item.isEquipped && item.prefixnum === sdk.locale.items.Insight)) {
+          // the best stored base is a future upgrade the guard can't equip yet, so until he wears Insight
+          // compare this one only against the empty 4 socket bases he can use now
+          checkItem = getItemToCompare([sdk.items.type.Polearm], null, twoHandDmgSort,
+            item => item.sockets === 4 && !item.getItem() && Item.canEquipMerc(item, sdk.body.RightArm));
+        }
+      }
       if (checkItem === undefined || checkItem.gid === base.gid) {
         return true;
       }
