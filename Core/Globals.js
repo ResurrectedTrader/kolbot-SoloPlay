@@ -270,9 +270,10 @@ const SetUp = (function () {
           }
         }
 
-        const larzukUsed = me.getQuest(sdk.quest.id.SiegeOnHarrogath, sdk.quest.states.Completed);
-        if (larzukUsed && me.data[currDiffStr].socketUsed === false) {
+        if (me.getQuest(sdk.quest.id.SiegeOnHarrogath, sdk.quest.states.Completed)) {
           me.data[currDiffStr].socketUsed = true;
+        } else if (me.getQuest(sdk.quest.id.SiegeOnHarrogath, sdk.quest.states.ReqComplete)) {
+          me.data[currDiffStr].socketUsed = false;
         }
       }
 
@@ -1152,18 +1153,25 @@ const Check = (function () {
 
     // TODO: enable this for other items, i.e maybe don't socket tal helm in hell but instead go back and use nightmare so then we can use hell socket on tal armor?
     /**
-     * Drops back to an earlier difficulty to use its unused Horadric Cube socket quest on the Lidless Wall.
-     * @returns {void}
+     * Return to a previous difficulty to use Larzuk's reward on Lidless Wall.
+     * @returns {boolean | void}
      */
     usePreviousSocketQuest: function () {
       if (me.classic) return;
       if (!resistance().Status) {
+        const shield = me.getEquippedItem(sdk.body.LeftArm);
         if (me.weaponswitch === 0
-        && me.equipped.get(sdk.body.LeftArm).fname.includes("Lidless Wall")
-        && !me.equipped.get(sdk.body.LeftArm).socketed) {
-          if (!me.normal) {
-            if (!me.data.normal.socketUsed) goToDifficulty(sdk.difficulty.Normal, " to use socket quest");
-            if (me.hell && !me.data.nightmare.socketUsed) goToDifficulty(sdk.difficulty.Nightmare, " to use socket quest");
+        && shield && shield.fname.includes("Lidless Wall") && shield.sockets === 0) {
+          const trips = Object.assign({}, me.data.socketQuestTrips);
+          for (let difficulty = sdk.difficulty.Normal; difficulty < me.diff; difficulty++) {
+            const name = sdk.difficulty.nameOf(difficulty).toLowerCase();
+            if (me.data[name].socketUsed || (trips[name] || 0) >= 2) continue;
+            trips[name] = (trips[name] || 0) + 1;
+            if (!CharData.updateData("me", { socketQuestTrips: trips })) return;
+            const saved = CharData.getStats().socketQuestTrips;
+            if (!saved || saved[name] !== trips[name]) return;
+            me.data.socketQuestTrips = trips;
+            return goToDifficulty(difficulty, " to use socket quest");
           }
         }
       }
