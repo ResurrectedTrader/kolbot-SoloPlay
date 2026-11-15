@@ -1774,8 +1774,8 @@ Attack.pwnAncients = function () {
   /** @returns {Monster[]} the living Ancients, nearest first */
   const getAncients = function () {
     return getUnits(sdk.unittype.Monster)
-      .filter(mon => ancientIds.includes(mon.classid) && mon.attackable)
-      .sort((a, b) => a.distance - b.distance);
+      .filter(function (mon) { return ancientIds.includes(mon.classid) && mon.attackable; })
+      .sort(function (a, b) { return a.distance - b.distance; });
   };
 
   const isDone = function () {
@@ -1807,7 +1807,9 @@ Attack.pwnAncients = function () {
           if (getDistance(me, x, y) < 3 || getDistance(x, y, altar.x, altar.y) > 35) continue;
           if (!Attack.validSpot(x, y)) continue;
 
-          const clear = threats.reduce((min, t) => Math.min(min, getDistance(x, y, t.x, t.y)), Infinity);
+          const clear = threats.reduce(function (min, t) {
+            return Math.min(min, getDistance(x, y, t.x, t.y));
+          }, Infinity);
           const inRange = !target || getDistance(x, y, target.x, target.y) <= MAX_CAST_RANGE;
           const tier = (clear >= clearance ? 2 : 0) + (inRange ? 1 : 0);
           const score = Math.min(clear, clearance + 6) - (0.2 * getDistance(me, x, y));
@@ -1837,7 +1839,8 @@ Attack.pwnAncients = function () {
     while (!me.dead) {
       const ancients = getAncients();
 
-      progress = progress || (ancients.length > 0 && ancients.length < 3) || ancients.some(mon => mon.hpPercent < 50);
+      const anyHurt = ancients.some(function (mon) { return mon.hpPercent < 50; });
+      progress = progress || (ancients.length > 0 && ancients.length < 3) || anyHurt;
       if (getTickCount() - start > (progress ? FIGHT_TIME : STALL_TIME)) {
         console.log("ÿc8Kolbot-SoloPlayÿc0: Ancients fight stalled, resetting");
         return false;
@@ -1846,7 +1849,7 @@ Attack.pwnAncients = function () {
       if (!ancients.length) {
         if (isDone()) return true;
         // out of sight: go back to the altar, where they are
-        if (!Misc.poll(() => getAncients().length > 0 || isDone(), 3000, 100)) {
+        if (!Misc.poll(function () { return getAncients().length > 0 || isDone(); }, 3000, 100)) {
           getDistance(me, Common.Ancients.altarSpot) > 10
             ? Pather.moveToUnit(Common.Ancients.altarSpot)
             : hop(findSpot(statues, OPEN_CLEARANCE));
