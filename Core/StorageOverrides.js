@@ -432,7 +432,7 @@
           continue; // ignore same gid
         } else {
           const blocker = this.itemList[this.buffer[x][y] - 1];
-          if (!itemsToMove.some(other => other.gid === blocker.gid)) itemsToMove.push(copyUnit(blocker));
+          if (!itemsToMove.some(function (other) { return other.gid === blocker.gid; })) itemsToMove.push(copyUnit(blocker));
         }
       }
     }
