@@ -50,7 +50,11 @@ function ancients () {
   }
 
   Common.Ancients.touchAltar();
-  Common.Ancients.startAncients(true, true);
+  if (me.hell && me.sorceress && Pather.canTeleport()) {
+    Attack.pwnAncients();
+  } else {
+    Common.Ancients.startAncients(true, true);
+  }
   
   me.cancel();
   Config = tempConfig;

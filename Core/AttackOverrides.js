@@ -1751,10 +1751,176 @@ Attack.pwnDia = function () {
 };
 
 /**
- * Stub: not yet implemented.
+ * Fights the Ancients from a stand-off as a teleporting sorceress, after the altar has been touched.
+ * The three charge together and their basic swings kill a sorceress in seconds, so she opens 25 yards
+ * from all three, teleports to a spot 20+ yards from every Ancient whenever one closes in, and casts
+ * only skills that reach 20 yards or more (no Static Field). When no Ancient is below half life after
+ * 8 minutes she leaves through a town portal and touches the altar again, which resets the Ancients.
+ * @returns {boolean} true once all three are dead
  */
 Attack.pwnAncients = function () {
-  // @todo fillout
+  const ancientIds = [sdk.monsters.KorlictheProtector, sdk.monsters.TalictheDefender, sdk.monsters.MadawctheGuardian];
+  const statues = [Common.Ancients.talicStatue, Common.Ancients.madawcStatue, Common.Ancients.korlicStatue];
+  const OPEN_CLEARANCE = 25;
+  const SAFE_CLEARANCE = 20;
+  const DANGER_RANGE = 10;
+  const MAX_CAST_RANGE = 30;
+  const STALL_TIME = Time.minutes(8);
+  const FIGHT_TIME = Time.minutes(15);
+  const MAX_RESETS = 2;
+  const sorc = ClassAttack[sdk.player.class.Sorceress];
+  const teleMana = Skill.getManaCost(sdk.skills.Teleport);
+
+  /** @returns {Monster[]} the living Ancients, nearest first */
+  const getAncients = function () {
+    return getUnits(sdk.unittype.Monster)
+      .filter(mon => ancientIds.includes(mon.classid) && mon.attackable)
+      .sort((a, b) => a.distance - b.distance);
+  };
+
+  const isDone = function () {
+    return Common.Ancients.checkStatues() || Misc.checkQuest(sdk.quest.id.RiteofPassage, sdk.quest.states.Completed);
+  };
+
+  /**
+   * Best spot to stand on: at least `clearance` from every threat and, when there is a target, within
+   * casting range of it, then the shortest hop. Falls back to the spot with the most clearance.
+   * @param {{ x: number, y: number }[]} threats
+   * @param {number} clearance
+   * @param {Monster} [target]
+   * @returns {{ x: number, y: number } | null}
+   */
+  const findSpot = function (threats, clearance, target) {
+    const altar = Common.Ancients.altarSpot;
+    const centers = [{ x: me.x, y: me.y }, altar];
+    target && centers.push({ x: target.x, y: target.y });
+    let best = null;
+    let bestTier = -1;
+    let bestScore = -Infinity;
+
+    for (let center of centers) {
+      for (let radius = 10; radius <= 30; radius += 5) {
+        for (let i = 0; i < 16; i++) {
+          const x = Math.round(center.x + radius * Math.cos(i * Math.PI / 8));
+          const y = Math.round(center.y + radius * Math.sin(i * Math.PI / 8));
+          // stay on the summit's plateau, in sight of the Ancients
+          if (getDistance(me, x, y) < 3 || getDistance(x, y, altar.x, altar.y) > 35) continue;
+          if (!Attack.validSpot(x, y)) continue;
+
+          const clear = threats.reduce((min, t) => Math.min(min, getDistance(x, y, t.x, t.y)), Infinity);
+          const inRange = !target || getDistance(x, y, target.x, target.y) <= MAX_CAST_RANGE;
+          const tier = (clear >= clearance ? 2 : 0) + (inRange ? 1 : 0);
+          const score = Math.min(clear, clearance + 6) - (0.2 * getDistance(me, x, y));
+
+          if (tier > bestTier || (tier === bestTier && score > bestScore)) {
+            [best, bestTier, bestScore] = [{ x: x, y: y }, tier, score];
+          }
+        }
+      }
+    }
+
+    return best;
+  };
+
+  /** @param {{ x: number, y: number } | null} spot */
+  const hop = function (spot) {
+    return !!spot && me.mp >= teleMana && Pather.teleportTo(spot.x, spot.y);
+  };
+
+  /** @returns {boolean} true if the Ancients died, false on a stall, a timeout or death */
+  const fight = function () {
+    const start = getTickCount();
+    let progress = false;
+    let castSinceHop = true;
+    let blockedHops = 0;
+
+    while (!me.dead) {
+      const ancients = getAncients();
+
+      progress = progress || (ancients.length > 0 && ancients.length < 3) || ancients.some(mon => mon.hpPercent < 50);
+      if (getTickCount() - start > (progress ? FIGHT_TIME : STALL_TIME)) {
+        console.log("ÿc8Kolbot-SoloPlayÿc0: Ancients fight stalled, resetting");
+        return false;
+      }
+
+      if (!ancients.length) {
+        if (isDone()) return true;
+        // out of sight: go back to the altar, where they are
+        if (!Misc.poll(() => getAncients().length > 0 || isDone(), 3000, 100)) {
+          getDistance(me, Common.Ancients.altarSpot) > 10
+            ? Pather.moveToUnit(Common.Ancients.altarSpot)
+            : hop(findSpot(statues, OPEN_CLEARANCE));
+        }
+        continue;
+      }
+
+      const target = ancients[0];
+      const close = target.distance < DANGER_RANGE && (castSinceHop || target.distance < 5);
+
+      if (close || (me.hpPercent < 50 && target.distance < 15)) {
+        if (hop(findSpot(ancients, SAFE_CLEARANCE, target))) {
+          castSinceHop = false;
+          continue;
+        }
+      }
+
+      if (target.distance > MAX_CAST_RANGE || checkCollision(me, target, Coords.BlockBits.Ranged)) {
+        if (blockedHops < 3 && hop(findSpot(ancients, SAFE_CLEARANCE, target))) {
+          blockedHops++;
+          continue;
+        }
+      }
+      blockedHops = 0;
+
+      sorc.switchCurse(target, false);
+
+      // range of 20 or more, so never Static Field
+      const skill = sorc.decideDistanceSkill(target, true);
+      if (skill === -1 || (me.mp < skill.manaCost() + teleMana && target.distance < 15)) {
+        delay(50);
+        continue;
+      }
+
+      const point = GameData.targetPointForSkill(skill.skillId, target);
+      point
+        ? Skill.cast(skill.skillId, Skill.getHand(skill.skillId), point.x, point.y)
+        : Skill.cast(skill.skillId, Skill.getHand(skill.skillId), target);
+      castSinceHop = true;
+    }
+
+    return false;
+  };
+
+  Attack.stopClear = true;
+
+  try {
+    for (let reset = 0; reset <= MAX_RESETS; reset++) {
+      if (reset > 0) {
+        hop(findSpot(getAncients(), SAFE_CLEARANCE));
+        Common.Ancients.ancientsPrep();
+        if (!me.inArea(sdk.areas.ArreatSummit)) return false;
+        Precast.doPrecast(true);
+        Common.Ancients.touchAltar();
+      }
+
+      // an Ancient only lightning can hurt, or another one we can't attack, is re-rolled as startAncients does
+      for (let roll = 0; !Common.Ancients.canAttack(); roll++) {
+        if (roll >= 10) throw new Error("I think I'm unable to complete ancients, I've rolled them 10 times");
+        Common.Ancients.ancientsPrep();
+        Common.Ancients.touchAltar();
+      }
+
+      const ancients = getAncients();
+      hop(findSpot(ancients.length ? ancients : statues, OPEN_CLEARANCE));
+
+      if (fight()) return true;
+      if (me.dead || isDone()) return isDone();
+    }
+  } finally {
+    Attack.stopClear = false;
+  }
+
+  return false;
 };
 
 /**
