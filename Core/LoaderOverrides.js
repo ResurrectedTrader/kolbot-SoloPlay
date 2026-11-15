@@ -42,8 +42,55 @@ Loader.loadScripts = function () {
 };
 
 /**
+ * Once Hell Diablo is dead, attempts Ancients before the farming list instead of after it, so a lost fight
+ * (which ends the game) costs minutes rather than a whole farming game. The attempt is stored as pending
+ * before it starts, so a game that ends inside it counts as a failure in the next one. After two failures
+ * in a row the next game runs only the ordinary list; so does a game without the Ancients' Way waypoint
+ * or with little gold.
+ * @returns {boolean} true if Ancients was attempted
+ */
+Loader.runAncientsFirst = function () {
+  if (!me.hell || !me.diablo || me.ancients || !SoloIndex.index.ancients.shouldRun()) return false;
+
+  const saved = me.data.ancientsFirst || { failures: 0, backoff: 0, pending: false };
+  const rec = { failures: saved.failures + (saved.pending ? 1 : 0), backoff: saved.backoff, pending: false };
+  const save = function () {
+    // other writers dump the whole of me.data back into the file
+    me.data.ancientsFirst = rec;
+    CharData.updateData("me", { ancientsFirst: rec });
+  };
+
+  if (rec.failures >= 2) {
+    [rec.failures, rec.backoff] = [0, 1];
+  }
+
+  // without the waypoint the first thing in the game would be the walk through Act 5
+  if (rec.backoff > 0 || Check.brokeAf(false) || !Pather.checkWP(sdk.areas.AncientsWay)) {
+    rec.backoff = Math.max(rec.backoff - 1, 0);
+    save();
+    myPrint("ancients first :: farming first this game");
+    return false;
+  }
+
+  rec.pending = true;
+  save();
+  myPrint("ancients first :: attempt " + (rec.failures + 1));
+
+  const tick = getTickCount();
+  this.runScript("ancients");
+  me.maxgametime += (getTickCount() - tick);
+
+  rec.pending = false;
+  rec.failures = me.ancients ? 0 : rec.failures + 1;
+  save();
+
+  return true;
+};
+
+/**
  * Runs each SoloPlay script in SoloIndex.scripts order once its shouldRun() check passes, going to
  * town first unless the script is exempt via skipTown, and tracking performance stats per script.
+ * In Hell, Ancients may run first (see runAncientsFirst); it then is not run again in that game.
  * @returns {boolean} always true
  */
 Loader.run = function () {
@@ -55,10 +102,14 @@ Loader.run = function () {
     !me.realm && Messaging.sendToScript("D2BotSoloPlay.dbj", "diffChange");
   }
 
+  const ranAncientsFirst = Loader.runAncientsFirst();
+
   for (Loader.scriptIndex = 0; Loader.scriptIndex < SoloIndex.scripts.length; Loader.scriptIndex++) {
     const ctx = {};
     const script = SoloIndex.scripts[this.scriptIndex];
-    
+
+    if (ranAncientsFirst && script === "ancients") continue;
+
     if (!me.inTown && !Loader.skipTown.includes(script)) {
       Town.goToTown();
     }

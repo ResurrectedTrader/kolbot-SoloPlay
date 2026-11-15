@@ -117,6 +117,7 @@ declare global {
 
   interface Loader {
     run(): boolean;
+    runAncientsFirst(): boolean;
   }
 
   // Core/MuleloggerOverrides.js additions. Merges into main's global MuleLoggerType; logItem
@@ -287,6 +288,8 @@ declare global {
     setDifficulty: string;
     charms: Record<string, { max: number; have: number[]; classid: number; stats: (check: ItemUnit) => boolean }>;
     charmGids: number[];
+    /** Loader.runAncientsFirst's record; absent in data files written before it. */
+    ancientsFirst?: { failures: number; backoff: number; pending: boolean };
     merc: {
       act: number;
       classid: number;

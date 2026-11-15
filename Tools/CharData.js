@@ -92,6 +92,7 @@ const CharData = (function () {
         setDifficulty: "Normal",
         charms: {},
         charmGids: [],
+        ancientsFirst: { failures: 0, backoff: 0, pending: false },
         merc: {
           act: 1,
           classid: sdk.mercs.Rogue,
