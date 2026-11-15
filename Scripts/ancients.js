@@ -50,7 +50,7 @@ function ancients () {
   }
 
   Common.Ancients.touchAltar();
-  if (me.hell && me.sorceress && Pather.canTeleport()) {
+  if ((me.nightmare || me.hell) && me.sorceress && Pather.canTeleport()) {
     Attack.pwnAncients();
   } else {
     Common.Ancients.startAncients(true, true);
