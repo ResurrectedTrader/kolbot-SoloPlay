@@ -287,6 +287,14 @@ declare global {
     setDifficulty: string;
     charms: Record<string, { max: number; have: number[]; classid: number; stats: (check: ItemUnit) => boolean }>;
     charmGids: number[];
+    /** Absent in data files written before Loader.runProgressFirst. */
+    progressFirst?: {
+      script: string;
+      failures: number;
+      lastAttemptGame: number;
+      game: number;
+      pending: boolean;
+    };
     merc: {
       act: number;
       classid: number;

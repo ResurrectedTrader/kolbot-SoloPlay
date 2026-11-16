@@ -92,6 +92,7 @@ const CharData = (function () {
         setDifficulty: "Normal",
         charms: {},
         charmGids: [],
+        progressFirst: { script: "", failures: 0, lastAttemptGame: 0, game: 0, pending: false },
         merc: {
           act: 1,
           classid: sdk.mercs.Rogue,

@@ -38,6 +38,22 @@ const SoloIndex = {
     "shenk", "savebarby", "anya", "pindle", "nith", "ancients", "baal", "a5chests",
   ],
 
+  /**
+   * Hell order of `scripts`: the optional one-off quests of an act run after the act's required script.
+   * @returns {SoloScript[]}
+   */
+  hellScripts: function () {
+    const after = { lamessen: "mephisto", izual: "diablo", anya: "ancients" };
+    const order = this.scripts.filter(s => !after.hasOwnProperty(s) || !this.scripts.includes(after[s]));
+
+    Object.keys(after).forEach((s) => {
+      if (this.scripts.includes(s) && this.scripts.includes(after[s])) {
+        order.splice(order.indexOf(after[s]) + 1, 0, s);
+      }
+    });
+
+    return order;
+  },
   /** @type {Record<SoloScript, { preReq?: () => boolean, skipIf?: () => boolean, shouldRun: () => boolean }>} */
   index: {
     "corpsefire": {
