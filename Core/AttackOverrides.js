@@ -2027,6 +2027,12 @@ Attack.pwnAncients = function () {
   const OPEN_CLEARANCE = 25;
   const SAFE_CLEARANCE = 20;
   const DANGER_RANGE = 10;
+  // an Extra Fast Ancient covers 14 yards during a charge cast; Talic's Whirlwind and Korlic's Leap cover
+  // about 16 yards a second
+  const FAST_DANGER_RANGE = 15;
+  const SEQUENCE_DANGER_RANGE = 20;
+  // monster mode 14 is the skill sequence that Leap and Whirlwind run in
+  const SEQUENCE_MODE = 14;
   const MAX_CAST_RANGE = 30;
   const STALL_TIME = Time.minutes(8);
   const FIGHT_TIME = Time.minutes(15);
@@ -2161,7 +2167,11 @@ Attack.pwnAncients = function () {
         castSinceHop = true;
         continue;
       }
-      const close = target.distance < DANGER_RANGE && (castSinceHop || target.distance < 5);
+      const fastClose = ancients.some(function (mon) {
+        return (mon.distance < FAST_DANGER_RANGE && mon.getEnchant(sdk.enchant.ExtraFast))
+          || (mon.distance < SEQUENCE_DANGER_RANGE && mon.mode === SEQUENCE_MODE);
+      });
+      const close = (target.distance < DANGER_RANGE || fastClose) && (castSinceHop || target.distance < 5);
 
       if (close || (me.hpPercent < 50 && target.distance < 15)) {
         if (hop(findSpot(ancients, SAFE_CLEARANCE, target))) {
