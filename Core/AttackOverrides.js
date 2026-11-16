@@ -1880,12 +1880,13 @@ Attack.ancientsStash = {
 
   /**
    * @param {number} teleMana
-   * @returns {boolean} true when she is low on mana or life with none of that potion on her and the stash
-   * still holds some
+   * @returns {boolean} true when she is below 40 % mana, or low on life with no healing potion on her, and the
+   * stash still holds that kind of potion
    */
   needsRefuel: function (teleMana) {
     if (!this.spot || getTickCount() - this.lastRefuel < Time.seconds(10)) return false;
     const T = sdk.items.type;
+    if (me.mpPercent < 40 && this.items([T.ManaPotion, T.RejuvPotion]).length > 0) return true;
     const noRejuv = !this.carried(T.RejuvPotion);
     const lowMana = me.mp < this.REFUEL_TELEPORTS * teleMana && !this.carried(T.ManaPotion) && noRejuv;
     const lowLife = me.hpPercent < 50 && !this.carried(T.HealingPotion) && noRejuv;
@@ -2016,8 +2017,10 @@ Attack.ancientsStash = {
  * Fights the Ancients from a stand-off as a teleporting sorceress, after the altar has been touched.
  * The three charge together and their basic swings kill a sorceress in seconds, so she opens 25 yards
  * from all three, teleports to a spot 20+ yards from every Ancient whenever one closes in, and casts
- * only skills that reach 20 yards or more (no Static Field). When no Ancient is below half life after
- * 8 minutes she leaves through a town portal and touches the altar again, which resets the Ancients.
+ * only skills that reach 20 yards or more (no Static Field). She keeps two Teleports of mana for escapes, drinks a
+ * carried mana potion when she gets near that reserve and refuels at the stash below 40 % mana. When no Ancient is
+ * below half life after 8 minutes she leaves through a town portal and touches the altar again, which resets the
+ * Ancients.
  * The same reset re-rolls a pack with a Cursed Ancient or one she can't hurt from range.
  * @returns {boolean} true once all three are dead
  */
@@ -2131,6 +2134,34 @@ Attack.pwnAncients = function () {
     return !!spot && me.mp >= teleMana && Pather.teleportTo(spot.x, spot.y);
   };
 
+  // two Teleports of mana kept for escapes: casts and repositioning hops leave them
+  const reserve = 2 * teleMana;
+  let lastDrink = 0;
+
+  /**
+   * Drinks a mana potion she carries (a rejuvenation if she has none), belt first, instead of leaving it to the
+   * tools thread, which let her stand dry with potions in her inventory.
+   * @returns {boolean} true if she drank
+   */
+  const drinkMana = function () {
+    if (getTickCount() - lastDrink < Time.seconds(1)) return false;
+    const type = sdk.items.type;
+    const potion = me.getItemsEx()
+      .filter(function (item) {
+        return (item.isInBelt || item.isInInventory)
+          && (item.itemType === type.ManaPotion || item.itemType === type.RejuvPotion);
+      })
+      .sort(function (a, b) {
+        return (Number(b.itemType === type.ManaPotion) - Number(a.itemType === type.ManaPotion))
+          || (Number(b.isInBelt) - Number(a.isInBelt));
+      })[0];
+    if (!potion) return false;
+    lastDrink = getTickCount();
+    potion.interact();
+    delay(50);
+    return true;
+  };
+
   /** @returns {boolean} true if the Ancients died, false on a stall, a timeout or death */
   const fight = function () {
     const start = getTickCount();
@@ -2161,6 +2192,7 @@ Attack.pwnAncients = function () {
 
       const target = ancients[0];
 
+      if (me.mp < reserve + 2 * teleMana && drinkMana()) continue;
       // low with nothing on her: lead them away from the stash and refuel there
       if (Attack.ancientsStash.needsRefuel(teleMana)) {
         Attack.ancientsStash.refuel(getAncients);
@@ -2181,7 +2213,7 @@ Attack.pwnAncients = function () {
       }
 
       if (target.distance > MAX_CAST_RANGE || checkCollision(me, target, Coords.BlockBits.Ranged)) {
-        if (blockedHops < 3 && hop(findSpot(ancients, SAFE_CLEARANCE, target))) {
+        if (blockedHops < 3 && me.mp >= reserve + teleMana && hop(findSpot(ancients, SAFE_CLEARANCE, target))) {
           blockedHops++;
           continue;
         }
@@ -2192,7 +2224,12 @@ Attack.pwnAncients = function () {
 
       // range of 20 or more, so never Static Field
       const skill = sorc.decideDistanceSkill(target, true);
-      if (skill === -1 || (me.mp < skill.manaCost() + teleMana && target.distance < 15)) {
+      if (skill === -1 || me.mp < skill.manaCost() + reserve) {
+        // nothing she can cast at all means she is dry with nothing left to drink: standing in their reach loses the
+        // fight, so end it and let the reset (a town portal and a restock) start a new one
+        if (skill === -1) return false;
+        // the reserve is there for the escape: while she waits on it, the next danger check may hop without a cast
+        castSinceHop = true;
         delay(50);
         continue;
       }
