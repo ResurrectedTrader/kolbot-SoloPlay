@@ -1756,6 +1756,7 @@ Attack.pwnDia = function () {
  * from all three, teleports to a spot 20+ yards from every Ancient whenever one closes in, and casts
  * only skills that reach 20 yards or more (no Static Field). When no Ancient is below half life after
  * 8 minutes she leaves through a town portal and touches the altar again, which resets the Ancients.
+ * The same reset re-rolls a pack with a Cursed Ancient or one she can't hurt from range.
  * @returns {boolean} true once all three are dead
  */
 Attack.pwnAncients = function () {
@@ -1768,14 +1769,47 @@ Attack.pwnAncients = function () {
   const STALL_TIME = Time.minutes(8);
   const FIGHT_TIME = Time.minutes(15);
   const MAX_RESETS = 2;
+  const MAX_ROLLS = 10;
+  const MAX_DANGER_ROLLS = 6;
+  /**
+   * mods worth a re-roll on top of an Ancient she can't hurt: Cursed (Amplify Damage) kills the merc. Mana Burn
+   * and Extra Fast lose no more often than other packs once she keeps her distance, so they are fought.
+   */
+  const DANGEROUS_MODS = new Map([
+    [sdk.enchant.Cursed, "Cursed"],
+  ]);
   const sorc = ClassAttack[sdk.player.class.Sorceress];
   const teleMana = Skill.getManaCost(sdk.skills.Teleport);
+  // the stand-off skills she has put points into; a one-point prerequisite (Charged Bolt) does not count
+  const mainSkills = [
+    sdk.skills.IceBolt, sdk.skills.IceBlast, sdk.skills.GlacialSpike, sdk.skills.Blizzard, sdk.skills.FrozenOrb,
+    sdk.skills.FireBolt, sdk.skills.FireBall, sdk.skills.Meteor, sdk.skills.Hydra,
+    sdk.skills.ChargedBolt, sdk.skills.Lightning, sdk.skills.ChainLightning,
+  ].filter(function (skillId) {
+    return GameData.baseLevel(skillId) >= 5 && Skill.getRange(skillId) >= 20;
+  });
 
   /** @returns {Monster[]} the living Ancients, nearest first */
   const getAncients = function () {
     return getUnits(sdk.unittype.Monster)
       .filter(function (mon) { return ancientIds.includes(mon.classid) && mon.attackable; })
       .sort(function (a, b) { return a.distance - b.distance; });
+  };
+
+  /**
+   * @param {Monster[]} ancients
+   * @returns {string} why the pack is worth re-rolling, or "" to fight it
+   */
+  const badPack = function (ancients) {
+    for (let mon of ancients) {
+      for (let [enchant, name] of DANGEROUS_MODS) {
+        if (mon.getEnchant(enchant)) return mon.name + " is " + name;
+      }
+      // immune to all her stand-off skills, e.g. a Cold Enchanted Talic for a cold and fire sorceress
+      const hurt = mainSkills.some(function (skillId) { return GameData.avgSkillDamage(skillId, mon) > 0; });
+      if (mainSkills.length && !hurt) return mon.name + " can't be hurt from range";
+    }
+    return "";
   };
 
   const isDone = function () {
@@ -1906,9 +1940,15 @@ Attack.pwnAncients = function () {
         Common.Ancients.touchAltar();
       }
 
-      // an Ancient only lightning can hurt, or another one we can't attack, is re-rolled as startAncients does
-      for (let roll = 0; !Common.Ancients.canAttack(); roll++) {
-        if (roll >= 10) throw new Error("I think I'm unable to complete ancients, I've rolled them 10 times");
+      // re-roll as startAncients does (leave, touch the altar again) an Ancient we can't attack, and a pack
+      // with a dangerous mod or an Ancient none of her stand-off skills hurt, up to MAX_DANGER_ROLLS times
+      for (let roll = 0; ; roll++) {
+        Misc.poll(function () { return getAncients().length >= 3; }, 2000, 100);
+        const attackable = Common.Ancients.canAttack();
+        const reason = attackable ? (roll < MAX_DANGER_ROLLS ? badPack(getAncients()) : "") : "can't attack";
+        if (!reason) break;
+        if (roll >= MAX_ROLLS) throw new Error("I think I'm unable to complete ancients, I've rolled them 10 times");
+        console.log("ÿc8Kolbot-SoloPlayÿc0: Ancients re-roll " + (roll + 1) + ": " + reason);
         Common.Ancients.ancientsPrep();
         Common.Ancients.touchAltar();
       }
