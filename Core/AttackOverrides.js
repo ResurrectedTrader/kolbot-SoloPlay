@@ -2019,8 +2019,8 @@ Attack.ancientsStash = {
  * from all three, teleports to a spot 20+ yards from every Ancient whenever one closes in, and casts
  * only skills that reach 20 yards or more (no Static Field). She keeps two Teleports of mana for escapes, drinks a
  * carried mana potion when she gets near that reserve and refuels at the stash below 40 % mana. When no Ancient is
- * below half life after 8 minutes she leaves through a town portal and touches the altar again, which resets the
- * Ancients.
+ * below half life after 8 minutes she steps through a town portal and back and touches the altar again, which
+ * resets the Ancients; she restocks in town only when her tome is low or her belt isn't full.
  * The same reset re-rolls a pack with a Cursed Ancient or one she can't hurt from range.
  * @returns {boolean} true once all three are dead
  */
@@ -2162,6 +2162,19 @@ Attack.pwnAncients = function () {
     return true;
   };
 
+  /**
+   * Resets the Ancients for a re-roll or after a stall. A town portal opened on the summit despawns them, and the
+   * altar can be touched again once that portal is gone, which happens when she comes back through it. So she steps
+   * through and straight back, and restocks in town (ancientsPrep) only when her tome is low or her belt isn't full.
+   */
+  const resetPack = function () {
+    if (Town.checkScrolls(sdk.items.TomeofTownPortal) < 5 || me.needBeltPots() || !Pather.makePortal(true)) {
+      Common.Ancients.ancientsPrep();
+      return;
+    }
+    Pather.usePortal(sdk.areas.ArreatSummit, me.name) || Pather.journeyTo(sdk.areas.ArreatSummit);
+  };
+
   /** @returns {boolean} true if the Ancients died, false on a stall, a timeout or death */
   const fight = function () {
     const start = getTickCount();
@@ -2250,7 +2263,7 @@ Attack.pwnAncients = function () {
     for (let reset = 0; reset <= MAX_RESETS; reset++) {
       if (reset > 0) {
         hop(findSpot(getAncients(), SAFE_CLEARANCE));
-        Common.Ancients.ancientsPrep();
+        resetPack();
         if (!me.inArea(sdk.areas.ArreatSummit)) return false;
         Precast.doPrecast(true);
         Common.Ancients.touchAltar();
@@ -2265,7 +2278,7 @@ Attack.pwnAncients = function () {
         if (!reason) break;
         if (roll >= MAX_ROLLS) throw new Error("I think I'm unable to complete ancients, I've rolled them 10 times");
         console.log("ÿc8Kolbot-SoloPlayÿc0: Ancients re-roll " + (roll + 1) + ": " + reason);
-        Common.Ancients.ancientsPrep();
+        resetPack();
         Common.Ancients.touchAltar();
       }
 
