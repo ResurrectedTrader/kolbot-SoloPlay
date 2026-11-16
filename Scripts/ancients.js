@@ -41,6 +41,9 @@ function ancients () {
     console.log("ÿc8Kolbot-SoloPlayÿc0: Failed to take portal back to Arreat Summit");
     Pather.clearToExit(sdk.areas.AncientsWay, sdk.areas.ArreatSummit, true); // enter Arreat Summit
   }
+
+  const standOff = (me.nightmare || me.hell) && me.sorceress && Pather.canTeleport();
+  standOff && Attack.ancientsStash.drop();
   
   Precast.doPrecast(true);
 
@@ -50,8 +53,9 @@ function ancients () {
   }
 
   Common.Ancients.touchAltar();
-  if ((me.nightmare || me.hell) && me.sorceress && Pather.canTeleport()) {
+  if (standOff) {
     Attack.pwnAncients();
+    Attack.ancientsStash.pickUp();
   } else {
     Common.Ancients.startAncients(true, true);
   }
