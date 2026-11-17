@@ -2027,13 +2027,6 @@ Attack.ancientsStash = {
 Attack.pwnAncients = function () {
   const ancientIds = [sdk.monsters.KorlictheProtector, sdk.monsters.TalictheDefender, sdk.monsters.MadawctheGuardian];
   const statues = [Common.Ancients.talicStatue, Common.Ancients.madawcStatue, Common.Ancients.korlicStatue];
-  const OPEN_CLEARANCE = 25;
-  const SAFE_CLEARANCE = 20;
-  const DANGER_RANGE = 10;
-  // an Extra Fast Ancient covers 14 yards during a charge cast; Talic's Whirlwind and Korlic's Leap cover
-  // about 16 yards a second
-  const FAST_DANGER_RANGE = 15;
-  const SEQUENCE_DANGER_RANGE = 20;
   // monster mode 14 is the skill sequence that Leap and Whirlwind run in
   const SEQUENCE_MODE = 14;
   const MAX_CAST_RANGE = 30;
@@ -2088,14 +2081,36 @@ Attack.pwnAncients = function () {
   };
 
   /**
-   * Best spot to stand on: at least `clearance` from every threat and, when there is a target, within
-   * casting range of it, then the shortest hop. Falls back to the spot with the most clearance.
+   * How fast an Ancient closes on her, in yards a second: about 12 walking, 23 when Extra Fast and 30 in a Leap or
+   * Whirlwind. A statue, before they wake, counts as a walking Ancient.
+   * @param {{ x: number, y: number }} unit
+   * @returns {number}
+   */
+  const speedOf = function (unit) {
+    const mon = /** @type {Monster} */ (unit);
+    if (typeof mon.getEnchant === "function" && mon.getEnchant(sdk.enchant.ExtraFast)) return 23;
+    return mon.mode === SEQUENCE_MODE ? 30 : 12;
+  };
+
+  /**
+   * How close an Ancient may come before she teleports away: its 3-yard swing plus what it covers in 0.6 seconds,
+   * a cast and the start of a teleport.
+   * @param {{ x: number, y: number }} unit
+   * @returns {number}
+   */
+  const threatRange = function (unit) {
+    return 3 + (speedOf(unit) * 0.6);
+  };
+
+  /**
+   * Best spot to stand on: at least `margin` yards beyond each threat's range and, when there is a target,
+   * within casting range of it, then the shortest hop. Falls back to the spot with the most clearance.
    * @param {{ x: number, y: number }[]} threats
-   * @param {number} clearance
+   * @param {number} margin
    * @param {Monster} [target]
    * @returns {{ x: number, y: number } | null}
    */
-  const findSpot = function (threats, clearance, target) {
+  const findSpot = function (threats, margin, target) {
     const altar = Common.Ancients.altarSpot;
     const centers = [{ x: me.x, y: me.y }, altar];
     target && centers.push({ x: target.x, y: target.y });
@@ -2113,11 +2128,11 @@ Attack.pwnAncients = function () {
           if (!Attack.validSpot(x, y)) continue;
 
           const clear = threats.reduce(function (min, t) {
-            return Math.min(min, getDistance(x, y, t.x, t.y));
+            return Math.min(min, getDistance(x, y, t.x, t.y) - threatRange(t));
           }, Infinity);
           const inRange = !target || getDistance(x, y, target.x, target.y) <= MAX_CAST_RANGE;
-          const tier = (clear >= clearance ? 2 : 0) + (inRange ? 1 : 0);
-          const score = Math.min(clear, clearance + 6) - (0.2 * getDistance(me, x, y));
+          const tier = (clear >= margin ? 2 : 0) + (inRange ? 1 : 0);
+          const score = Math.min(clear, margin + 6) - (0.2 * getDistance(me, x, y));
 
           if (tier > bestTier || (tier === bestTier && score > bestScore)) {
             [best, bestTier, bestScore] = [{ x: x, y: y }, tier, score];
@@ -2198,7 +2213,7 @@ Attack.pwnAncients = function () {
         if (!Misc.poll(function () { return getAncients().length > 0 || isDone(); }, 3000, 100)) {
           getDistance(me, Common.Ancients.altarSpot) > 10
             ? Pather.moveToUnit(Common.Ancients.altarSpot)
-            : hop(findSpot(statues, OPEN_CLEARANCE));
+            : hop(findSpot(statues, 15));
         }
         continue;
       }
@@ -2212,21 +2227,18 @@ Attack.pwnAncients = function () {
         castSinceHop = true;
         continue;
       }
-      const fastClose = ancients.some(function (mon) {
-        return (mon.distance < FAST_DANGER_RANGE && mon.getEnchant(sdk.enchant.ExtraFast))
-          || (mon.distance < SEQUENCE_DANGER_RANGE && mon.mode === SEQUENCE_MODE);
-      });
-      const close = (target.distance < DANGER_RANGE || fastClose) && (castSinceHop || target.distance < 5);
+      const threatened = ancients.some(function (mon) { return mon.distance < threatRange(mon); });
+      const close = threatened && (castSinceHop || target.distance < 5);
 
-      if (close || (me.hpPercent < 50 && target.distance < 15)) {
-        if (hop(findSpot(ancients, SAFE_CLEARANCE, target))) {
+      if (close || (me.hpPercent < 50 && target.distance < 1.5 * threatRange(target))) {
+        if (hop(findSpot(ancients, 10, target))) {
           castSinceHop = false;
           continue;
         }
       }
 
       if (target.distance > MAX_CAST_RANGE || checkCollision(me, target, Coords.BlockBits.Ranged)) {
-        if (blockedHops < 3 && me.mp >= reserve + teleMana && hop(findSpot(ancients, SAFE_CLEARANCE, target))) {
+        if (blockedHops < 3 && me.mp >= reserve + teleMana && hop(findSpot(ancients, 10, target))) {
           blockedHops++;
           continue;
         }
@@ -2262,7 +2274,7 @@ Attack.pwnAncients = function () {
   try {
     for (let reset = 0; reset <= MAX_RESETS; reset++) {
       if (reset > 0) {
-        hop(findSpot(getAncients(), SAFE_CLEARANCE));
+        hop(findSpot(getAncients(), 10));
         resetPack();
         if (!me.inArea(sdk.areas.ArreatSummit)) return false;
         Precast.doPrecast(true);
@@ -2283,7 +2295,7 @@ Attack.pwnAncients = function () {
       }
 
       const ancients = getAncients();
-      hop(findSpot(ancients.length ? ancients : statues, OPEN_CLEARANCE));
+      hop(findSpot(ancients.length ? ancients : statues, 15));
 
       if (fight()) return true;
       if (me.dead || isDone()) return isDone();
