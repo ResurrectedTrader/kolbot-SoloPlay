@@ -595,24 +595,17 @@ declare global {
     inverseSpotDistance(spot: { x: number; y: number }, distance: number, otherSpot?: Unit): IPathNode | { x: number; y: number };
     ancientsStash: {
       spot: { x: number; y: number } | null;
-      KITE_SPOT: { x: number; y: number };
       gids: number[];
-      used: { mana: number; life: number; rejuv: number };
-      picked: number;
-      refuels: number;
       lastRefuel: number;
-      KEEP_REJUVS: number;
-      REFUEL_TELEPORTS: number;
-      CLUSTER: number;
+      CLOSE: number;
       STASH_CLEAR: number;
-      LEAVE: number;
-      MAX_PICK: number;
+      livingAncients(): Monster[];
       reset(): void;
       carried(type: number): number;
       items(types?: number[]): ItemUnit[];
       drop(): boolean;
       needsRefuel(teleMana: number): boolean;
-      refuel(getAncients: () => Monster[]): boolean;
+      refuel(): boolean;
       pickUp(): void;
     };
     pwnAncients(): boolean;

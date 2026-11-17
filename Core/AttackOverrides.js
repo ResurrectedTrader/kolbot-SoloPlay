@@ -1751,35 +1751,28 @@ Attack.pwnDia = function () {
 };
 
 /**
- * Spare potions a stand-off sorceress leaves at the south end of the Arreat Summit before touching the
- * altar; the town trip after the drop buys a second buffer, since items on the ground take no inventory
- * space. The fight goes on as usual. Only when she runs low does she use them: she leads the Ancients to
- * the north end, past their statues, lets them close in, teleports to the stash, drinks what she needs and
- * picks up a few more, then fights on from there.
+ * Spare potions a stand-off sorceress leaves at the south end of the Arreat Summit before touching the altar;
+ * the town trip after the drop buys a second buffer. When she runs low she leads the Ancients to the north end,
+ * teleports to the stash, drinks what she needs and picks up a few more, then fights on from there.
  */
 Attack.ancientsStash = {
   /** @type {{ x: number, y: number } | null} */
   spot: null,
-  /** where she leads the Ancients before a refuel: the north end of the summit, beyond the statues */
-  KITE_SPOT: { x: 10051, y: 12592 },
   /** @type {number[]} */
   gids: [],
-  used: { mana: 0, life: 0, rejuv: 0 },
-  picked: 0,
-  refuels: 0,
   lastRefuel: 0,
-  /** rejuvenation potions she keeps on her, the rest are spares */
-  KEEP_REJUVS: 6,
-  /** teleports of mana that trigger a refuel: the kite, the escape and a hop or two to spare */
-  REFUEL_TELEPORTS: 6,
-  /** at the kite spot she waits until every Ancient is this close... */
-  CLUSTER: 12,
-  /** ...and teleports to the stash only while every Ancient is this far from it */
+  /** an Ancient this close ends the wait at the kite spot and the pickups at the stash */
+  CLOSE: 12,
+  /** she goes to the stash, and picks up what is left after the fight, only with every Ancient this far away */
   STASH_CLEAR: 25,
-  /** she leaves the stash once an Ancient is this close */
-  LEAVE: 12,
-  /** potions picked up per refuel */
-  MAX_PICK: 6,
+
+  /** @returns {Monster[]} the living Ancients, nearest first */
+  livingAncients: function () {
+    const ids = [sdk.monsters.KorlictheProtector, sdk.monsters.TalictheDefender, sdk.monsters.MadawctheGuardian];
+    return getUnits(sdk.unittype.Monster)
+      .filter(function (mon) { return ids.includes(mon.classid) && mon.attackable; })
+      .sort(function (a, b) { return a.distance - b.distance; });
+  },
 
   reset: function () {
     this.gids.forEach(function (gid) {
@@ -1787,9 +1780,6 @@ Attack.ancientsStash = {
     });
     this.spot = null;
     this.gids = [];
-    this.used = { mana: 0, life: 0, rejuv: 0 };
-    this.picked = 0;
-    this.refuels = 0;
     this.lastRefuel = 0;
   },
 
@@ -1817,20 +1807,14 @@ Attack.ancientsStash = {
   },
 
   /**
-   * Drops the spare potions at the south end of the summit, then buys the buffer again in town. Spares are
-   * the inventory potions beyond the belt's free slots for that kind, and rejuvenations beyond KEEP_REJUVS.
+   * Drops the inventory potions beyond the belt's free slots for that kind (and rejuvenations beyond six) at the
+   * south end of the summit, 30+ yards from the statues, then buys the buffer again in town.
    * @returns {boolean} true if a stash was dropped
    */
   drop: function () {
-    const dropStart = getTickCount();
     this.reset();
-    const statues = [Common.Ancients.talicStatue, Common.Ancients.madawcStatue, Common.Ancients.korlicStatue];
-    // the summit runs north-south with the statues north of the altar, so the south end is 30+ yards from
-    // all three; the fight's spots stay within 35 yards of the altar, and this one is 33
     const spot = [{ x: 10047, y: 12655 }, { x: 10058, y: 12648 }].find(function (node) {
-      return Attack.validSpot(node.x, node.y) && statues.every(function (statue) {
-        return getDistance(node.x, node.y, statue.x, statue.y) >= 30;
-      });
+      return Attack.validSpot(node.x, node.y);
     });
     if (!spot) return false;
 
@@ -1840,7 +1824,7 @@ Attack.ancientsStash = {
     };
     const inInventory = me.getItemsEx().filter(function (item) { return item.isInInventory; });
     const rejuvs = inInventory.filter(function (item) { return item.itemType === sdk.items.type.RejuvPotion; });
-    const spareRejuvs = Math.max(0, this.carried(sdk.items.type.RejuvPotion) - this.KEEP_REJUVS);
+    const spareRejuvs = Math.max(0, this.carried(sdk.items.type.RejuvPotion) - 6);
     const keep = new Map([
       [sdk.items.type.HealingPotion, beltNeed("hp")],
       [sdk.items.type.ManaPotion, beltNeed("mp")],
@@ -1869,58 +1853,50 @@ Attack.ancientsStash = {
     if (!Pather.usePortal(sdk.areas.ArreatSummit, me.name)) {
       Pather.journeyTo(sdk.areas.ArreatSummit);
     }
-    console.log(
-      "\u00ffc8Kolbot-SoloPlay\u00ffc0: Ancients stash: dropped " + this.gids.length
-      + " potions, the drop and refill took "
-      + Math.round((getTickCount() - dropStart) / 1000) + "s"
-    );
+    console.log("\u00ffc8Kolbot-SoloPlay\u00ffc0: Ancients stash: dropped " + this.gids.length + " potions");
 
     return true;
   },
 
   /**
    * @param {number} teleMana
-   * @returns {boolean} true when she is below 40 % mana, or low on life with no healing potion on her, and the
-   * stash still holds that kind of potion
+   * @returns {boolean} true when she is below 40 % mana, out of mana potions with under six teleports of mana, or
+   * low on life with no healing potion on her, and the stash still holds that kind of potion
    */
   needsRefuel: function (teleMana) {
     if (!this.spot || getTickCount() - this.lastRefuel < Time.seconds(10)) return false;
     const T = sdk.items.type;
     if (me.mpPercent < 40 && this.items([T.ManaPotion, T.RejuvPotion]).length > 0) return true;
     const noRejuv = !this.carried(T.RejuvPotion);
-    const lowMana = me.mp < this.REFUEL_TELEPORTS * teleMana && !this.carried(T.ManaPotion) && noRejuv;
+    const lowMana = me.mp < 6 * teleMana && !this.carried(T.ManaPotion) && noRejuv;
     const lowLife = me.hpPercent < 50 && !this.carried(T.HealingPotion) && noRejuv;
     if (!lowMana && !lowLife) return false;
     return this.items(lowMana ? [T.ManaPotion, T.RejuvPotion] : [T.HealingPotion, T.RejuvPotion]).length > 0;
   },
 
   /**
-   * Leads the Ancients to KITE_SPOT, waits for all three to close in (or one to get close, or 6 seconds),
-   * then teleports to the stash if they are all STASH_CLEAR from it, drinks and picks up potions.
-   * @param {() => Monster[]} getAncients
+   * Leads the Ancients to the north end of the summit and waits for all three to close in (or one to get close,
+   * or 6 seconds), then teleports to the stash if they are all STASH_CLEAR from it, drinks and picks up potions.
    * @returns {boolean} true if she reached the stash
    */
-  refuel: function (getAncients) {
+  refuel: function () {
+    const self = this;
     const spot = this.spot;
-    const kite = this.KITE_SPOT;
-    const CLUSTER = this.CLUSTER;
-    const STASH_CLEAR = this.STASH_CLEAR;
+    const kite = { x: 10051, y: 12592 };
     this.lastRefuel = getTickCount();
-    this.refuels++;
-    console.log("\u00ffc8Kolbot-SoloPlay\u00ffc0: Ancients stash: refuel " + this.refuels + ", leading them north");
 
     if (getDistance(me, kite.x, kite.y) > 5 && !Pather.moveTo(kite.x, kite.y)) return false;
     const waitStart = getTickCount();
     while (!me.dead && getTickCount() - waitStart < Time.seconds(6)) {
-      const ancients = getAncients();
+      const ancients = this.livingAncients();
       if (!ancients.length) break;
       if (ancients[0].distance < 6) break;
-      if (ancients.every(function (mon) { return mon.distance <= CLUSTER; })) break;
+      if (ancients.every(function (mon) { return mon.distance <= self.CLOSE; })) break;
       delay(100);
     }
 
-    const clear = getAncients().every(function (mon) {
-      return getDistance(mon, spot.x, spot.y) >= STASH_CLEAR;
+    const clear = this.livingAncients().every(function (mon) {
+      return getDistance(mon, spot.x, spot.y) >= self.STASH_CLEAR;
     });
     if (!clear) {
       console.log("\u00ffc8Kolbot-SoloPlay\u00ffc0: Ancients stash: not clear, refuel skipped");
@@ -1929,16 +1905,12 @@ Attack.ancientsStash = {
     if (!Pather.moveTo(spot.x, spot.y)) return false;
 
     const T = sdk.items.type;
-    const nearStash = getAncients().reduce(function (min, mon) {
-      return Math.min(min, getDistance(mon, spot.x, spot.y));
-    }, Infinity);
     let drankMana = false;
     let drankLife = false;
-    let picks = 0;
 
-    while (picks < this.MAX_PICK && !me.dead) {
-      const nearest = getAncients().reduce(function (min, mon) { return Math.min(min, mon.distance); }, Infinity);
-      if (nearest < this.LEAVE) break;
+    for (let picks = 0; picks < 6 && !me.dead; picks++) {
+      const nearest = this.livingAncients()[0];
+      if (nearest && nearest.distance < this.CLOSE) break;
 
       // what she needs now first, then whatever fits to restock the belt
       const order = [];
@@ -1955,60 +1927,36 @@ Attack.ancientsStash = {
 
       const gid = item.gid;
       if (!Pickit.pickItem(item, Pickit.Result.WANTED, "ancients stash", { allowClear: false, retry: 2 })) break;
-      picks++;
-      this.picked++;
 
       const potion = me.getItemsEx().find(function (it) {
         return it.gid === gid && (it.isInInventory || it.isInBelt);
       });
       if (!potion) continue;
-      const kind = potion.itemType === T.ManaPotion ? "mana" : potion.itemType === T.HealingPotion ? "life" : "rejuv";
-      const drink = (kind === "mana" && !drankMana && me.mpPercent < 60)
-        || (kind === "life" && !drankLife && me.hpPercent < 80)
-        || (kind === "rejuv" && me.hpPercent < 40);
+      const drink = (potion.itemType === T.ManaPotion && !drankMana && me.mpPercent < 60)
+        || (potion.itemType === T.HealingPotion && !drankLife && me.hpPercent < 80)
+        || (potion.itemType === T.RejuvPotion && me.hpPercent < 40);
       if (drink) {
         potion.interact();
-        this.used[kind]++;
-        kind === "mana" && (drankMana = true);
-        kind === "life" && (drankLife = true);
+        potion.itemType === T.ManaPotion && (drankMana = true);
+        potion.itemType === T.HealingPotion && (drankLife = true);
         delay(50);
       }
     }
-
-    console.log(
-      "\u00ffc8Kolbot-SoloPlay\u00ffc0: Ancients stash: refuel " + this.refuels + " picked " + picks
-      + ", drank mana " + (drankMana ? 1 : 0) + " life " + (drankLife ? 1 : 0)
-      + ", nearest Ancient to the stash " + Math.round(nearStash) + " yards"
-    );
     return true;
   },
 
   /** After the fight: picks up what is left of the stash, except potions an Ancient is near. */
   pickUp: function () {
     if (!this.spot) return;
-    let picked = 0;
-
     if (!me.dead && me.inArea(sdk.areas.ArreatSummit)) {
-      const ancientIds = [
-        sdk.monsters.KorlictheProtector, sdk.monsters.TalictheDefender, sdk.monsters.MadawctheGuardian
-      ];
-      const ancients = getUnits(sdk.unittype.Monster).filter(function (mon) {
-        return ancientIds.includes(mon.classid) && mon.attackable;
-      });
+      const ancients = this.livingAncients();
       const STASH_CLEAR = this.STASH_CLEAR;
-
       for (let item of this.items()) {
         const near = ancients.some(function (mon) { return getDistance(mon, item) < STASH_CLEAR; });
         if (near || !Pickit.canFit(item)) continue;
-        Pickit.pickItem(item, Pickit.Result.WANTED, "ancients stash", { allowClear: false, retry: 2 }) && picked++;
+        Pickit.pickItem(item, Pickit.Result.WANTED, "ancients stash", { allowClear: false, retry: 2 });
       }
     }
-
-    console.log(
-      "\u00ffc8Kolbot-SoloPlay\u00ffc0: Ancients stash: refuels " + this.refuels + ", picked " + this.picked
-      + ", drank mana " + this.used.mana + ", life " + this.used.life + ", rejuv " + this.used.rejuv
-      + ", picked back " + picked
-    );
     this.reset();
   },
 };
@@ -2025,7 +1973,6 @@ Attack.ancientsStash = {
  * @returns {boolean} true once all three are dead
  */
 Attack.pwnAncients = function () {
-  const ancientIds = [sdk.monsters.KorlictheProtector, sdk.monsters.TalictheDefender, sdk.monsters.MadawctheGuardian];
   const statues = [Common.Ancients.talicStatue, Common.Ancients.madawcStatue, Common.Ancients.korlicStatue];
   // monster mode 14 is the skill sequence that Leap and Whirlwind run in
   const SEQUENCE_MODE = 14;
@@ -2035,13 +1982,6 @@ Attack.pwnAncients = function () {
   const MAX_RESETS = 2;
   const MAX_ROLLS = 10;
   const MAX_DANGER_ROLLS = 6;
-  /**
-   * mods worth a re-roll on top of an Ancient she can't hurt: Cursed (Amplify Damage) kills the merc. Mana Burn
-   * and Extra Fast lose no more often than other packs once she keeps her distance, so they are fought.
-   */
-  const DANGEROUS_MODS = new Map([
-    [sdk.enchant.Cursed, "Cursed"],
-  ]);
   const sorc = ClassAttack[sdk.player.class.Sorceress];
   const teleMana = Skill.getManaCost(sdk.skills.Teleport);
   // the stand-off skills she has put points into; a one-point prerequisite (Charged Bolt) does not count
@@ -2053,12 +1993,7 @@ Attack.pwnAncients = function () {
     return GameData.baseLevel(skillId) >= 5 && Skill.getRange(skillId) >= 20;
   });
 
-  /** @returns {Monster[]} the living Ancients, nearest first */
-  const getAncients = function () {
-    return getUnits(sdk.unittype.Monster)
-      .filter(function (mon) { return ancientIds.includes(mon.classid) && mon.attackable; })
-      .sort(function (a, b) { return a.distance - b.distance; });
-  };
+  const getAncients = Attack.ancientsStash.livingAncients;
 
   /**
    * @param {Monster[]} ancients
@@ -2066,9 +2001,8 @@ Attack.pwnAncients = function () {
    */
   const badPack = function (ancients) {
     for (let mon of ancients) {
-      for (let [enchant, name] of DANGEROUS_MODS) {
-        if (mon.getEnchant(enchant)) return mon.name + " is " + name;
-      }
+      // Cursed (Amplify Damage) kills the merc; Mana Burn and Extra Fast packs lose no more often, so they are fought
+      if (mon.getEnchant(sdk.enchant.Cursed)) return mon.name + " is Cursed";
       // immune to all her stand-off skills, e.g. a Cold Enchanted Talic for a cold and fire sorceress
       const hurt = mainSkills.some(function (skillId) { return GameData.avgSkillDamage(skillId, mon) > 0; });
       if (mainSkills.length && !hurt) return mon.name + " can't be hurt from range";
@@ -2263,7 +2197,7 @@ Attack.pwnAncients = function () {
       if (me.mp < reserve + 2 * teleMana && drinkMana()) continue;
       // low with nothing on her: lead them away from the stash and refuel there
       if (Attack.ancientsStash.needsRefuel(teleMana)) {
-        Attack.ancientsStash.refuel(getAncients);
+        Attack.ancientsStash.refuel();
         castSinceHop = true;
         continue;
       }
