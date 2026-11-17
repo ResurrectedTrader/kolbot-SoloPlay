@@ -1860,18 +1860,15 @@ Attack.ancientsStash = {
 
   /**
    * @param {number} teleMana
-   * @returns {boolean} true when she is below 40 % mana, out of mana potions with under six teleports of mana, or
-   * low on life with no healing potion on her, and the stash still holds that kind of potion
+   * @returns {boolean} true when she is below 40 % mana, or low on life with no healing or rejuvenation potion on
+   * her, and the stash still holds that kind of potion
    */
-  needsRefuel: function (teleMana) {
+  needsRefuel: function () {
     if (!this.spot || getTickCount() - this.lastRefuel < Time.seconds(10)) return false;
     const T = sdk.items.type;
     if (me.mpPercent < 40 && this.items([T.ManaPotion, T.RejuvPotion]).length > 0) return true;
-    const noRejuv = !this.carried(T.RejuvPotion);
-    const lowMana = me.mp < 6 * teleMana && !this.carried(T.ManaPotion) && noRejuv;
-    const lowLife = me.hpPercent < 50 && !this.carried(T.HealingPotion) && noRejuv;
-    if (!lowMana && !lowLife) return false;
-    return this.items(lowMana ? [T.ManaPotion, T.RejuvPotion] : [T.HealingPotion, T.RejuvPotion]).length > 0;
+    const lowLife = me.hpPercent < 50 && !this.carried(T.HealingPotion) && !this.carried(T.RejuvPotion);
+    return lowLife && this.items([T.HealingPotion, T.RejuvPotion]).length > 0;
   },
 
   /**
@@ -1980,8 +1977,7 @@ Attack.pwnAncients = function () {
   const STALL_TIME = Time.minutes(8);
   const FIGHT_TIME = Time.minutes(15);
   const MAX_RESETS = 2;
-  const MAX_ROLLS = 10;
-  const MAX_DANGER_ROLLS = 6;
+  const MAX_ROLLS = 6;
   const sorc = ClassAttack[sdk.player.class.Sorceress];
   const teleMana = Skill.getManaCost(sdk.skills.Teleport);
   // the stand-off skills she has put points into; a one-point prerequisite (Charged Bolt) does not count
@@ -2096,16 +2092,8 @@ Attack.pwnAncients = function () {
             return Math.min(min, getDistance(x, y, landed[i].x, landed[i].y) - threatRange(t));
           }, Infinity);
           const inRange = !target || getDistance(x, y, target.x, target.y) <= MAX_CAST_RANGE;
-          // two of them within 25 yards from directions more than 120 degrees apart close in from both sides
-          const near = landed.filter(function (t) { return getDistance(x, y, t.x, t.y) < 25; });
-          const pinched = near.some(function (a, i) {
-            return near.slice(i + 1).some(function (b) {
-              const dot = ((a.x - x) * (b.x - x)) + ((a.y - y) * (b.y - y));
-              return dot < -0.5 * getDistance(x, y, a.x, a.y) * getDistance(x, y, b.x, b.y);
-            });
-          });
           const open = clear >= margin ? openness(x, y) : 0;
-          const tier = (clear >= margin ? 4 : 0) + (!pinched && open >= 6 ? 2 : 0) + (inRange ? 1 : 0);
+          const tier = (clear >= margin ? 4 : 0) + (open >= 6 ? 2 : 0) + (inRange ? 1 : 0);
           const score = Math.min(clear, margin + 6) + (0.5 * open) - (0.2 * getDistance(me, x, y));
 
           if (tier > bestTier || (tier === bestTier && score > bestScore)) {
@@ -2196,7 +2184,7 @@ Attack.pwnAncients = function () {
 
       if (me.mp < reserve + 2 * teleMana && drinkMana()) continue;
       // low with nothing on her: lead them away from the stash and refuel there
-      if (Attack.ancientsStash.needsRefuel(teleMana)) {
+      if (Attack.ancientsStash.needsRefuel()) {
         Attack.ancientsStash.refuel();
         castSinceHop = true;
         continue;
@@ -2260,9 +2248,12 @@ Attack.pwnAncients = function () {
       for (let roll = 0; ; roll++) {
         Misc.poll(function () { return getAncients().length >= 3; }, 2000, 100);
         const attackable = Common.Ancients.canAttack();
-        const reason = attackable ? (roll < MAX_DANGER_ROLLS ? badPack(getAncients()) : "") : "can't attack";
+        const reason = attackable ? badPack(getAncients()) : "can't attack";
         if (!reason) break;
-        if (roll >= MAX_ROLLS) throw new Error("I think I'm unable to complete ancients, I've rolled them 10 times");
+        if (roll >= MAX_ROLLS) {
+          if (attackable) break;
+          throw new Error("I think I'm unable to complete ancients, I've rolled them " + MAX_ROLLS + " times");
+        }
         console.log("ÿc8Kolbot-SoloPlayÿc0: Ancients re-roll " + (roll + 1) + ": " + reason);
         resetPack();
         Common.Ancients.touchAltar();

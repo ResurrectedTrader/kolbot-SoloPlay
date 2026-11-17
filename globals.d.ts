@@ -604,7 +604,7 @@ declare global {
       carried(type: number): number;
       items(types?: number[]): ItemUnit[];
       drop(): boolean;
-      needsRefuel(teleMana: number): boolean;
+      needsRefuel(): boolean;
       refuel(): boolean;
       pickUp(): void;
     };
