@@ -2063,8 +2063,8 @@ Attack.pwnAncients = function () {
 
   /**
    * Best spot to stand on: at least `margin` yards beyond each threat's range, measured from where it will be when
-   * she lands, and, when there is a target, within casting range of it; then (in this order) not between two
-   * Ancients, open ground and the shortest hop. Falls back to the spot with the most clearance.
+   * she lands, and, when there is a target, within casting range of it; then open ground and the shortest hop.
+   * Falls back to the spot with the most clearance.
    * @param {{ x: number, y: number }[]} threats
    * @param {number} margin
    * @param {Monster} [target]
@@ -2207,7 +2207,8 @@ Attack.pwnAncients = function () {
       }
       blockedHops = 0;
 
-      sorc.switchCurse(target, false);
+      // a switch-cast charge keeps her busy for up to 1.9 seconds: only with the nearest Ancient 20+ yards away
+      target.distance > 20 && sorc.switchCurse(target, false);
 
       // range of 20 or more, so never Static Field
       const skill = sorc.decideDistanceSkill(target, true);
