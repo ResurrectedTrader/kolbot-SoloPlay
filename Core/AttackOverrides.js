@@ -2103,8 +2103,38 @@ Attack.pwnAncients = function () {
   };
 
   /**
-   * Best spot to stand on: at least `margin` yards beyond each threat's range and, when there is a target,
-   * within casting range of it, then the shortest hop. Falls back to the spot with the most clearance.
+   * Where a threat will be when she lands: an Ancient walks toward where she stands for a teleport's time, one in
+   * a Leap or Whirlwind ends at its target; a statue stays put.
+   * @param {{ x: number, y: number }} unit
+   * @returns {{ x: number, y: number }}
+   */
+  const atLanding = function (unit) {
+    const mon = /** @type {Monster} */ (unit);
+    if (typeof mon.getEnchant !== "function") return unit;
+    if (mon.mode === SEQUENCE_MODE) return mon.targetx ? { x: mon.targetx, y: mon.targety } : { x: me.x, y: me.y };
+    const d = Math.max(1, mon.distance);
+    const step = Math.min(d, speedOf(mon) * me.castingDuration(sdk.skills.Teleport));
+    return { x: mon.x + ((me.x - mon.x) * step / d), y: mon.y + ((me.y - mon.y) * step / d) };
+  };
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {number} how many of the 8 points 6 yards around it are walkable (fewer near edges and corners)
+   */
+  const openness = function (x, y) {
+    let open = 0;
+    for (let k = 0; k < 8; k++) {
+      const a = k * Math.PI / 4;
+      Attack.validSpot(Math.round(x + (6 * Math.cos(a))), Math.round(y + (6 * Math.sin(a)))) && open++;
+    }
+    return open;
+  };
+
+  /**
+   * Best spot to stand on: at least `margin` yards beyond each threat's range, measured from where it will be when
+   * she lands, and, when there is a target, within casting range of it; then (in this order) not between two
+   * Ancients, open ground and the shortest hop. Falls back to the spot with the most clearance.
    * @param {{ x: number, y: number }[]} threats
    * @param {number} margin
    * @param {Monster} [target]
@@ -2114,6 +2144,7 @@ Attack.pwnAncients = function () {
     const altar = Common.Ancients.altarSpot;
     const centers = [{ x: me.x, y: me.y }, altar];
     target && centers.push({ x: target.x, y: target.y });
+    const landed = threats.map(atLanding);
     let best = null;
     let bestTier = -1;
     let bestScore = -Infinity;
@@ -2127,12 +2158,21 @@ Attack.pwnAncients = function () {
           if (getDistance(me, x, y) < 3 || getDistance(x, y, altar.x, altar.y) > 35) continue;
           if (!Attack.validSpot(x, y)) continue;
 
-          const clear = threats.reduce(function (min, t) {
-            return Math.min(min, getDistance(x, y, t.x, t.y) - threatRange(t));
+          const clear = threats.reduce(function (min, t, i) {
+            return Math.min(min, getDistance(x, y, landed[i].x, landed[i].y) - threatRange(t));
           }, Infinity);
           const inRange = !target || getDistance(x, y, target.x, target.y) <= MAX_CAST_RANGE;
-          const tier = (clear >= margin ? 2 : 0) + (inRange ? 1 : 0);
-          const score = Math.min(clear, margin + 6) - (0.2 * getDistance(me, x, y));
+          // two of them within 25 yards from directions more than 120 degrees apart close in from both sides
+          const near = landed.filter(function (t) { return getDistance(x, y, t.x, t.y) < 25; });
+          const pinched = near.some(function (a, i) {
+            return near.slice(i + 1).some(function (b) {
+              const dot = ((a.x - x) * (b.x - x)) + ((a.y - y) * (b.y - y));
+              return dot < -0.5 * getDistance(x, y, a.x, a.y) * getDistance(x, y, b.x, b.y);
+            });
+          });
+          const open = clear >= margin ? openness(x, y) : 0;
+          const tier = (clear >= margin ? 4 : 0) + (!pinched && open >= 6 ? 2 : 0) + (inRange ? 1 : 0);
+          const score = Math.min(clear, margin + 6) + (0.5 * open) - (0.2 * getDistance(me, x, y));
 
           if (tier > bestTier || (tier === bestTier && score > bestScore)) {
             [best, bestTier, bestScore] = [{ x: x, y: y }, tier, score];
