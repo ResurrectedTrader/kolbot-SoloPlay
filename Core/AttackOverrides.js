@@ -1966,7 +1966,8 @@ Attack.ancientsStash = {
  * carried mana potion when she gets near that reserve and refuels at the stash below 40 % mana. When no Ancient is
  * below half life after 8 minutes she steps through a town portal and back and touches the altar again, which
  * resets the Ancients; she restocks in town only when her tome is low or her belt isn't full.
- * The same reset re-rolls a pack with a Cursed Ancient or one she can't hurt from range.
+ * The same reset re-rolls a pack with a Cursed or Extra Fast Ancient or one she can't hurt from range, until the pack
+ * is acceptable.
  * @returns {boolean} true once all three are dead
  */
 Attack.pwnAncients = function () {
@@ -1977,7 +1978,10 @@ Attack.pwnAncients = function () {
   const STALL_TIME = Time.minutes(8);
   const FIGHT_TIME = Time.minutes(15);
   const MAX_RESETS = 2;
-  const MAX_ROLLS = 6;
+  // a bad pack is re-rolled until it is acceptable, up to MAX_ROLLS times (then fought); an Ancient she can't attack
+  // at all, MAX_UNATTACKABLE_ROLLS times as startAncients does (then she gives up)
+  const MAX_ROLLS = 30;
+  const MAX_UNATTACKABLE_ROLLS = 10;
   const sorc = ClassAttack[sdk.player.class.Sorceress];
   const teleMana = Skill.getManaCost(sdk.skills.Teleport);
   // the stand-off skills she has put points into; a one-point prerequisite (Charged Bolt) does not count
@@ -1997,8 +2001,10 @@ Attack.pwnAncients = function () {
    */
   const badPack = function (ancients) {
     for (let mon of ancients) {
-      // Cursed (Amplify Damage) kills the merc; Mana Burn and Extra Fast packs lose no more often, so they are fought
+      // Cursed (Amplify Damage) kills the merc. An Extra Fast pack loses no more often, but its fight is slower and
+      // costs far more mana, and a re-roll costs a few seconds
       if (mon.getEnchant(sdk.enchant.Cursed)) return mon.name + " is Cursed";
+      if (mon.getEnchant(sdk.enchant.ExtraFast)) return mon.name + " is Extra Fast";
       // immune to all her stand-off skills, e.g. a Cold Enchanted Talic for a cold and fire sorceress
       const hurt = mainSkills.some(function (skillId) { return GameData.avgSkillDamage(skillId, mon) > 0; });
       if (mainSkills.length && !hurt) return mon.name + " can't be hurt from range";
@@ -2245,15 +2251,15 @@ Attack.pwnAncients = function () {
       }
 
       // re-roll as startAncients does (leave, touch the altar again) an Ancient we can't attack, and a pack
-      // with a dangerous mod or an Ancient none of her stand-off skills hurt, up to MAX_DANGER_ROLLS times
+      // with a dangerous mod or an Ancient none of her stand-off skills hurt
       for (let roll = 0; ; roll++) {
         Misc.poll(function () { return getAncients().length >= 3; }, 2000, 100);
         const attackable = Common.Ancients.canAttack();
         const reason = attackable ? badPack(getAncients()) : "can't attack";
         if (!reason) break;
-        if (roll >= MAX_ROLLS) {
-          if (attackable) break;
-          throw new Error("I think I'm unable to complete ancients, I've rolled them " + MAX_ROLLS + " times");
+        if (attackable && roll >= MAX_ROLLS) break;
+        if (!attackable && roll >= MAX_UNATTACKABLE_ROLLS) {
+          throw new Error("I think I'm unable to complete ancients, I've rolled them " + roll + " times");
         }
         console.log("ÿc8Kolbot-SoloPlayÿc0: Ancients re-roll " + (roll + 1) + ": " + reason);
         resetPack();
