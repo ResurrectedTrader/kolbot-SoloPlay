@@ -42,21 +42,17 @@ function ancients () {
     Pather.clearToExit(sdk.areas.AncientsWay, sdk.areas.ArreatSummit, true); // enter Arreat Summit
   }
 
-  const standOff = (me.nightmare || me.hell) && me.sorceress && Pather.canTeleport();
-  standOff && Attack.ancientsStash.drop();
-  
-  Precast.doPrecast(true);
-
-  // move to altar
-  if (!Pather.moveToPreset(sdk.areas.ArreatSummit, sdk.unittype.Object, sdk.quest.chest.AncientsAltar)) {
-    console.warn("ÿc8Kolbot-SoloPlayÿc0: Failed to move to ancients' altar");
-  }
-
-  Common.Ancients.touchAltar();
-  if (standOff) {
+  if ((me.nightmare || me.hell) && me.sorceress && Pather.canTeleport()) {
     Attack.pwnAncients();
-    Attack.ancientsStash.pickUp();
   } else {
+    Precast.doPrecast(true);
+
+    // move to altar
+    if (!Pather.moveToPreset(sdk.areas.ArreatSummit, sdk.unittype.Object, sdk.quest.chest.AncientsAltar)) {
+      console.warn("ÿc8Kolbot-SoloPlayÿc0: Failed to move to ancients' altar");
+    }
+
+    Common.Ancients.touchAltar();
     Common.Ancients.startAncients(true, true);
   }
   

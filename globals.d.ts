@@ -593,21 +593,6 @@ declare global {
     getItemCharges(skillId: number): boolean;
     haveDependancy(itemType: number): ItemUnit | false;
     inverseSpotDistance(spot: { x: number; y: number }, distance: number, otherSpot?: Unit): IPathNode | { x: number; y: number };
-    ancientsStash: {
-      spot: { x: number; y: number } | null;
-      gids: number[];
-      lastRefuel: number;
-      CLOSE: number;
-      STASH_CLEAR: number;
-      livingAncients(): Monster[];
-      reset(): void;
-      carried(type: number): number;
-      items(types?: number[]): ItemUnit[];
-      drop(): boolean;
-      needsRefuel(): boolean;
-      refuel(): boolean;
-      pickUp(): void;
-    };
     pwnAncients(): boolean;
     pwnDia(): Monster | false;
     pwnDury(): boolean;
