@@ -41,16 +41,20 @@ function ancients () {
     console.log("ÿc8Kolbot-SoloPlayÿc0: Failed to take portal back to Arreat Summit");
     Pather.clearToExit(sdk.areas.AncientsWay, sdk.areas.ArreatSummit, true); // enter Arreat Summit
   }
-  
-  Precast.doPrecast(true);
 
-  // move to altar
-  if (!Pather.moveToPreset(sdk.areas.ArreatSummit, sdk.unittype.Object, sdk.quest.chest.AncientsAltar)) {
-    console.warn("ÿc8Kolbot-SoloPlayÿc0: Failed to move to ancients' altar");
+  if ((me.nightmare || me.hell) && me.sorceress && Pather.canTeleport()) {
+    Attack.pwnAncients();
+  } else {
+    Precast.doPrecast(true);
+
+    // move to altar
+    if (!Pather.moveToPreset(sdk.areas.ArreatSummit, sdk.unittype.Object, sdk.quest.chest.AncientsAltar)) {
+      console.warn("ÿc8Kolbot-SoloPlayÿc0: Failed to move to ancients' altar");
+    }
+
+    Common.Ancients.touchAltar();
+    Common.Ancients.startAncients(true, true);
   }
-
-  Common.Ancients.touchAltar();
-  Common.Ancients.startAncients(true, true);
   
   me.cancel();
   Config = tempConfig;
