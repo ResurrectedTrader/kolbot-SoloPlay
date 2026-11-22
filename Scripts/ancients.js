@@ -32,6 +32,11 @@ function ancients () {
   Config.TownMP = 0;
   Config.HPBuffer = 15;
   Config.MPBuffer = 15;
+  // the stand-off sorceress dodges far more than she gets hit: most of her spare potions are mana
+  if ((me.nightmare || me.hell) && me.sorceress && Pather.canTeleport()) {
+    Config.HPBuffer = 8;
+    Config.MPBuffer = 22;
+  }
   Config.LifeChicken = 10;
   CharData.updateConfig();
   me.overhead("updated settings");
