@@ -8,6 +8,9 @@
 (function () {
   const novaLike = [sdk.skills.Nova, sdk.skills.StaticField, sdk.skills.FrostNova];
   const CastPlanner = require("../../Modules/CastPlanner");
+  // the levelling builds the planner was tested on and the fire/cold final builds whose skills it models; the
+  // lightning and nova final builds keep decideAttack's pick
+  const PLANNED_BUILDS = ["Start", "Stepping", "Leveling", "Blizzballer", "Meteorb"];
 
   /**
    * Does cold slow this monster: its monstats ColdEffect for the difficulty is the chill's speed change, read as
@@ -485,7 +488,8 @@
      * @todo static field is a good skill but if we are currently out of range,
      * check how dangerous it is to tele to spot before choosing that as our skill
      */
-    let selectedSkill = planAttack(unit, decideAttack(unit, overrides));
+    let selectedSkill = decideAttack(unit, overrides);
+    PLANNED_BUILDS.includes(SetUp.currentBuild) && (selectedSkill = planAttack(unit, selectedSkill));
     if (selectedSkill === -1) return Attack.Result.FAILED;
 
     switch (selectedSkill.skillId) {
