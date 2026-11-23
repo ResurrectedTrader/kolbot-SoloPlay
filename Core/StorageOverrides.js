@@ -517,7 +517,9 @@
     // Cube -> Stash, must place item in inventory first
     if (item.isInCube && this.location === sdk.storage.Stash) {
       cube = me.getItem(sdk.quest.item.Cube);
-      if (!cube || !Packet.itemToCursor(item)) return false;
+      // the item goes through the inventory: with no room there it would be left on the cursor (and dropped),
+      // so it stays in the cube until the inventory has room
+      if (!cube || !Storage.Inventory.CanFit(item) || !Packet.itemToCursor(item)) return false;
       cube.isInStash && Storage.Stash.CanFit(item) && Cubing.closeCube(true);
       if (!cube.isInStash && !Storage.Inventory.MoveTo(item)) {
         return false;
