@@ -41,9 +41,94 @@ Loader.loadScripts = function () {
   return Loader.run();
 };
 
+/** Character level from which a Hell sorceress attempts each progress script ahead of the farming list. */
+Loader.progressFirstGates = { travincal: 73, mephisto: 73, diablo: 75, ancients: 77, baal: 78 };
+
+Loader.progressFirstDone = false;
+
+/**
+ * @param {{ script: string, failures: number, lastAttemptGame: number, game: number, pending: boolean }} rec
+ */
+Loader.saveProgressFirst = function (rec) {
+  // other writers dump the whole of me.data back into the file
+  me.data.progressFirst = rec;
+  CharData.updateData("me", { progressFirst: rec });
+};
+
+/**
+ * Hell sorceress: attempt the next progress script before the farming list. An attempt is stored as pending
+ * before it starts, so a game that ends inside the script (death, chicken) counts as a failure in the next game.
+ * After two failures in a row, the next two games run only the ordinary list.
+ * @returns {string | null} the script that was run, or null
+ */
+Loader.runProgressFirst = function () {
+  const saved = me.data.progressFirst || {};
+  const rec = {
+    script: saved.script || "",
+    failures: saved.failures || 0,
+    lastAttemptGame: saved.lastAttemptGame || 0,
+    game: (saved.game || 0) + 1,
+    pending: false,
+  };
+  saved.pending && (rec.failures += 1);
+
+  const script = Object.keys(this.progressFirstGates).find(function (name) {
+    return !me[name] && !!SoloIndex.index[name] && SoloIndex.index[name].shouldRun();
+  });
+
+  if (script && rec.script !== script) {
+    rec.script = script;
+    rec.failures = 0;
+    rec.lastAttemptGame = 0;
+  }
+
+  if (!script || me.charlvl < this.progressFirstGates[script]) {
+    this.saveProgressFirst(rec);
+    return null;
+  }
+
+  if (script === "diablo") {
+    myPrint("ProgressFirst :: ordinary route diablo");
+    this.saveProgressFirst(rec);
+    return null;
+  }
+
+  if (rec.failures >= 2 && rec.game - rec.lastAttemptGame <= 2) {
+    myPrint("ProgressFirst :: backoff " + script);
+    this.saveProgressFirst(rec);
+    return null;
+  }
+
+  rec.lastAttemptGame = rec.game;
+  rec.pending = true;
+  this.saveProgressFirst(rec);
+  myPrint("ProgressFirst :: " + script + " attempt " + (rec.failures + 1));
+
+  const tick = getTickCount();
+  Settings.logPerformance && Tracker.scriptStart(script, tick, me.getStat(sdk.stats.Experience));
+  this.runScript(script);
+  me.maxgametime += (getTickCount() - tick);
+  Settings.logPerformance && Tracker.clearInProgress();
+
+  rec.pending = false;
+  // The Ancients routine can return after its combat timeout without earning the quest.
+  if (script === "ancients" ? me.ancients : this.doneScripts.has(script)) {
+    rec.failures = 0;
+    myPrint("ProgressFirst :: " + script + " done");
+  } else {
+    rec.failures += 1;
+    myPrint("ProgressFirst :: " + script + " failed");
+  }
+  this.saveProgressFirst(rec);
+
+  return script;
+};
+
 /**
  * Runs each SoloPlay script in SoloIndex.scripts order once its shouldRun() check passes, going to
  * town first unless the script is exempt via skipTown, and tracking performance stats per script.
+ * In Hell a sorceress first attempts the next progress script (see runProgressFirst) and runs the
+ * optional one-off quests of an act after its required script.
  * @returns {boolean} always true
  */
 Loader.run = function () {
@@ -55,9 +140,18 @@ Loader.run = function () {
     !me.realm && Messaging.sendToScript("D2BotSoloPlay.dbj", "diffChange");
   }
 
+  let progressFirstScript = null;
+  if (me.hell && me.sorceress && !Loader.progressFirstDone) {
+    Loader.progressFirstDone = true;
+    SoloIndex.scripts = SoloIndex.hellScripts();
+    progressFirstScript = Loader.runProgressFirst();
+  }
+
   for (Loader.scriptIndex = 0; Loader.scriptIndex < SoloIndex.scripts.length; Loader.scriptIndex++) {
     const ctx = {};
     const script = SoloIndex.scripts[this.scriptIndex];
+
+    if (script === progressFirstScript) continue;
     
     if (!me.inTown && !Loader.skipTown.includes(script)) {
       Town.goToTown();
