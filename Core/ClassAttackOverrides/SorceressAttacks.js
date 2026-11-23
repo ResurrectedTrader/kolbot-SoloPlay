@@ -7,6 +7,7 @@
 
 (function () {
   const novaLike = [sdk.skills.Nova, sdk.skills.StaticField, sdk.skills.FrostNova];
+  const CastPlanner = require("../../Modules/CastPlanner");
 
   /**
    * Does cold slow this monster: its monstats ColdEffect for the difficulty is the chill's speed change, read as
@@ -208,6 +209,38 @@
         }
         return (me.mp > skill.manaCost()) && (!skill.timed || !overrides.checkSkillDelay || !me.skillDelay);
       }) || -1;
+  };
+
+  /**
+   * The castable-now skill with the most expected damage where the monsters will be when it lands.
+   * Skills the planner does not model (Static Field, Charged Bolt, Nova, ...) keep their GameData estimate,
+   * so `fallback` (decideAttack's pick) wins when it is one of those and scores higher.
+   * @param {Monster} unit
+   * @param {SkillDataInfo | -1} fallback
+   * @returns {SkillDataInfo | -1}
+   */
+  const planAttack = function (unit, fallback) {
+    const ctx = CastPlanner.context(unit);
+    let best = null;
+    let bestDmg = 0;
+    for (let [skillId, skill] of Skills) {
+      if (!CastPlanner.plannable(skillId) || !skill.have()) continue;
+      if (me.mp <= skill.manaCost() || (skill.timed && me.skillDelay)) continue;
+      const dmg = ctx.evaluate(skillId);
+      if (!(dmg > bestDmg)) continue;
+      best = skill;
+      bestDmg = dmg;
+    }
+    if (!best) return fallback;
+    if (fallback !== -1 && !CastPlanner.plannable(fallback.skillId) && fallback._dmg > bestDmg
+      && me.mp > fallback.manaCost()) {
+      return fallback;
+    }
+    if (Settings.debugging.skills) {
+      console.log("(Planner :: " + getSkillById(best.skillId) + ") expected " + Math.round(bestDmg)
+        + " vs " + (fallback !== -1 ? getSkillById(fallback.skillId) + " " + Math.round(fallback._dmg) : "none"));
+    }
+    return best;
   };
 
   /**
@@ -452,7 +485,7 @@
      * @todo static field is a good skill but if we are currently out of range,
      * check how dangerous it is to tele to spot before choosing that as our skill
      */
-    let selectedSkill = decideAttack(unit, overrides);
+    let selectedSkill = planAttack(unit, decideAttack(unit, overrides));
     if (selectedSkill === -1) return Attack.Result.FAILED;
 
     switch (selectedSkill.skillId) {
